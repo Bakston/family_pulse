@@ -8,7 +8,7 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 class GithubUpdateService {
   static const String owner = 'Bakston';
-  static const String repo = 'family-shield';
+  static const String repo = 'family_pulse';
   static const String githubToken = ''; // Оставьте пустым для публичного репозитория
 
   /// Проверка обновлений с GitHub Releases.
