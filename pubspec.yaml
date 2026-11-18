@@ -2,7 +2,7 @@ name: family_pulse
 description: "Мобильное приложение FamilyPulse для защиты и связи членов семьи."
 publish_to: 'none'
 
-version: 1.0.1+2
+version: 1.0.2+3
 
 environment:
   sdk: ^3.13.3
@@ -39,10 +39,10 @@ dev_dependencies:
 flutter:
   uses-material-design: true
 
-assets:
+  assets:
     - assets/images/
 
-fonts:
+  fonts:
     - family: Inter
       fonts:
         - asset: assets/fonts/Inter_18pt-Regular.ttf
