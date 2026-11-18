@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "640722757303",
+    "firebase_url": "https://familypulse-77e86-default-rtdb.europe-west1.firebasedatabase.app",
+    "project_id": "familypulse-77e86",
+    "storage_bucket": "familypulse-77e86.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:640722757303:android:e905fcb970c4c020d28f32",
+        "android_client_info": {
+          "package_name": "com.familypulse.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyAeXiKGSd0VGgOst3ISgCb04V4JLv9pnT4"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
