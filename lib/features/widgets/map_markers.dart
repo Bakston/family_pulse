@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:material_ui/material_ui.dart';
 import 'user_avatar_widget.dart';
 
 /// Маркер ребёнка с аватаркой и рамкой статуса
