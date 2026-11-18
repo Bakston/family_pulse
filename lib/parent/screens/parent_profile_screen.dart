@@ -3,6 +3,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/services/parent_security_service.dart';
 import '../../features/auth/initial_session_wrapper.dart';
 import '../../features/widgets/profile_editor_card.dart';
 
@@ -25,7 +26,9 @@ class _ParentProfileScreenState extends State<ParentProfileScreen> {
   String _savedDbPassword = '';
   String _pin = '';
   String _avatarHash = '';
-  bool _hasPinInDb = false;
+
+  bool _isBioSupported = false;
+  bool _isBioEnabled = true;
 
   bool _isLoading = true;
   bool _isSaving = false;
@@ -46,8 +49,9 @@ class _ParentProfileScreenState extends State<ParentProfileScreen> {
     String avatarHash = prefs.getString('user_avatar_hash') ?? '';
     String login = '';
     String password = '';
-    String pin = prefs.getString('saved_device_pin') ?? '';
-    bool hasPin = pin.isNotEmpty;
+    String pin = prefs.getString('parent_security_pin') ??
+        prefs.getString('saved_device_pin') ??
+        '';
 
     if (uid.isNotEmpty) {
       try {
@@ -61,15 +65,23 @@ class _ParentProfileScreenState extends State<ParentProfileScreen> {
           login = data['login']?.toString() ?? '';
           password = data['password']?.toString() ?? '';
           avatarHash = data['avatarHash']?.toString() ?? avatarHash;
-          if (data.containsKey('pin')) {
-            hasPin = true;
-            pin = data['pin']?.toString() ?? pin;
+          final dbPin = data['pin']?.toString() ?? '';
+          if (dbPin.isNotEmpty) {
+            pin = dbPin;
           }
         }
       } catch (e) {
         debugPrint('Ошибка загрузки профиля из БД: $e');
       }
     }
+
+    // Синхронизируем ПИН в сервис блокировки, если он уже был задан в БД
+    if (pin.length == 4) {
+      await ParentSecurityService.savePin(pin);
+    }
+
+    final bioSupported = await ParentSecurityService.isBiometricAvailable();
+    final bioEnabled = await ParentSecurityService.isBiometricEnabled();
 
     if (!mounted) return;
     setState(() {
@@ -81,14 +93,27 @@ class _ParentProfileScreenState extends State<ParentProfileScreen> {
       _password = password;
       _savedDbPassword = password;
       _pin = pin;
-      _hasPinInDb = hasPin;
       _avatarHash = avatarHash;
+      _isBioSupported = bioSupported;
+      _isBioEnabled = bioEnabled;
       _isLoading = false;
     });
   }
 
   Future<void> _saveProfile() async {
     if (_uid.isEmpty) return;
+
+    final cleanPin = _pin.trim();
+    if (cleanPin.isNotEmpty &&
+        (cleanPin.length != 4 || int.tryParse(cleanPin) == null)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('ПИН-код должен состоять ровно из 4 цифр'),
+        ),
+      );
+      return;
+    }
+
     setState(() => _isSaving = true);
 
     try {
@@ -99,10 +124,8 @@ class _ParentProfileScreenState extends State<ParentProfileScreen> {
         'login': _login.trim(),
         'password': _password.trim(),
         'avatarHash': _avatarHash,
+        'pin': cleanPin.isNotEmpty ? cleanPin : null,
       };
-      if (_hasPinInDb) {
-        updateMap['pin'] = _pin.trim();
-      }
 
       await FirebaseDatabase.instance.ref('users/$_uid').update(updateMap);
 
@@ -113,11 +136,15 @@ class _ParentProfileScreenState extends State<ParentProfileScreen> {
       await prefs.setString('user_avatar_hash', _avatarHash);
       await prefs.setString('saved_device_uid', _uid);
 
-      if (_hasPinInDb && _pin.trim().isNotEmpty) {
-        await prefs.setString('saved_device_pin', _pin.trim());
+      if (cleanPin.isNotEmpty) {
+        await prefs.setString('saved_device_pin', cleanPin);
+        await ParentSecurityService.savePin(cleanPin);
       } else {
         await prefs.remove('saved_device_pin');
+        await ParentSecurityService.clearPin();
       }
+
+      await ParentSecurityService.setBiometricEnabled(_isBioEnabled);
 
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -242,6 +269,7 @@ class _ParentProfileScreenState extends State<ParentProfileScreen> {
       await prefs.remove('parent_profile_ready_$_uid');
     }
 
+    await ParentSecurityService.clearPin();
     await prefs.remove('user_type');
     await prefs.remove('user_uid');
     await prefs.remove('user_name');
@@ -297,33 +325,72 @@ class _ParentProfileScreenState extends State<ParentProfileScreen> {
               : SafeArea(
                   child: SingleChildScrollView(
                     padding: const EdgeInsets.fromLTRB(16, 4, 16, 20),
-                    child: ProfileEditorCard(
-                      name: _name,
-                      role: _role,
-                      birthDate: _birthDate,
-                      login: _login,
-                      password: _password,
-                      pin: _pin,
-                      avatarHash: _avatarHash,
-                      showPinField: _hasPinInDb,
-                      availableRoles: const ['Мама', 'Папа'],
-                      defaultDisplayName: 'Родитель',
-                      fallbackAvatarIcon: Icons.person,
-                      accentColor: Colors.blue.shade700,
-                      initialBirthDate: DateTime(now.year - 30, 1, 1),
-                      firstBirthDate: DateTime(1940),
-                      lastBirthDate: DateTime(now.year - 14),
-                      isSaving: _isSaving,
-                      onNameChanged: (v) => setState(() => _name = v),
-                      onRoleChanged: (v) => setState(() => _role = v),
-                      onBirthDateChanged: (v) => setState(() => _birthDate = v),
-                      onLoginChanged: (v) => setState(() => _login = v),
-                      onPasswordChanged: (v) => setState(() => _password = v),
-                      onPinChanged: (v) => setState(() => _pin = v),
-                      onAvatarChanged: (v) => setState(() => _avatarHash = v),
-                      onSave: _saveProfile,
-                      onClose: () => Navigator.pop(context),
-                      onDelete: _confirmDeleteProfileWithPassword,
+                    child: Column(
+                      children: [
+                        if (_isBioSupported) ...[
+                          Card(
+                            elevation: 4,
+                            color: Colors.white.withValues(alpha: 0.92),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(16),
+                            ),
+                            child: SwitchListTile.adaptive(
+                              value: _isBioEnabled,
+                              onChanged: (val) =>
+                                  setState(() => _isBioEnabled = val),
+                              secondary: Icon(
+                                Icons.fingerprint,
+                                color: Colors.blue.shade700,
+                                size: 28,
+                              ),
+                              title: const Text(
+                                'Вход по отпечатку / Face ID',
+                                style: TextStyle(
+                                  fontWeight: FontWeight.w600,
+                                  fontSize: 15,
+                                ),
+                              ),
+                              subtitle: const Text(
+                                'Быстрая разблокировка родительской панели',
+                                style: TextStyle(fontSize: 12),
+                              ),
+                              activeTrackColor: Colors.blue.shade700,
+                            ),
+                          ),
+                          const SizedBox(height: 10),
+                        ],
+                        ProfileEditorCard(
+                          name: _name,
+                          role: _role,
+                          birthDate: _birthDate,
+                          login: _login,
+                          password: _password,
+                          pin: _pin,
+                          avatarHash: _avatarHash,
+                          showPinField: true,
+                          availableRoles: const ['Мама', 'Папа'],
+                          defaultDisplayName: 'Родитель',
+                          fallbackAvatarIcon: Icons.person,
+                          accentColor: Colors.blue.shade700,
+                          initialBirthDate: DateTime(now.year - 30, 1, 1),
+                          firstBirthDate: DateTime(1940),
+                          lastBirthDate: DateTime(now.year - 14),
+                          isSaving: _isSaving,
+                          onNameChanged: (v) => setState(() => _name = v),
+                          onRoleChanged: (v) => setState(() => _role = v),
+                          onBirthDateChanged: (v) =>
+                              setState(() => _birthDate = v),
+                          onLoginChanged: (v) => setState(() => _login = v),
+                          onPasswordChanged: (v) =>
+                              setState(() => _password = v),
+                          onPinChanged: (v) => setState(() => _pin = v),
+                          onAvatarChanged: (v) =>
+                              setState(() => _avatarHash = v),
+                          onSave: _saveProfile,
+                          onClose: () => Navigator.pop(context),
+                          onDelete: _confirmDeleteProfileWithPassword,
+                        ),
+                      ],
                     ),
                   ),
                 ),

@@ -18,6 +18,7 @@ import '../../core/app_theme.dart';
 import '../../core/services/chat_notification_service.dart';
 import '../../core/services/family_chat_service.dart';
 import '../../core/services/github_update_service.dart';
+import '../../core/services/parent_security_service.dart';
 import '../../features/widgets/app_version_widget.dart';
 import '../../features/widgets/user_avatar_widget.dart';
 
@@ -654,6 +655,7 @@ class _ParentPanelScreenState extends State<ParentPanelScreen>
   Future<void> _performLogout() async {
     await ChatNotificationService.stopListening();
     await _updateMyPresence(isOnline: false);
+    ParentSecurityService.isSessionUnlocked = false;
 
     final prefs = await SharedPreferences.getInstance();
     if (_currentUid.isNotEmpty) {

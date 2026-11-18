@@ -1,8 +1,11 @@
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import '../../parent/screens/parent_panel_screen.dart';
 import '../../child/screens/child_panel_screen.dart';
+import '../../core/services/parent_security_service.dart';
+import '../../parent/screens/parent_lock_screen.dart';
+import '../../parent/screens/parent_panel_screen.dart';
 import 'welcome_screen.dart';
 
 class InitialSessionWrapper extends StatefulWidget {
@@ -27,8 +30,18 @@ class _InitialSessionWrapperState extends State<InitialSessionWrapper> {
 
   Future<void> _checkSession() async {
     final prefs = await SharedPreferences.getInstance();
-    final userType = prefs.getString('user_type');
-    final userUid = prefs.getString('user_uid');
+    var userType = prefs.getString('user_type');
+    var userUid = prefs.getString('user_uid');
+
+    // Если родитель вышел через "Войти по логину и паролю" (FirebaseAuth.signOut),
+    // очищаем сохраненную сессию, чтобы открыть экран входа.
+    if (userType == 'parent' && FirebaseAuth.instance.currentUser == null) {
+      await prefs.remove('user_type');
+      await prefs.remove('user_uid');
+      userType = null;
+      userUid = null;
+    }
+
     // Поддерживаем актуальный ключ 'saved_child_id' и резервный 'child_id'
     final childId = prefs.getString('saved_child_id') ?? prefs.getString('child_id');
     final childName = prefs.getString('saved_child_name') ?? 'Ребёнок';
@@ -52,9 +65,14 @@ class _InitialSessionWrapperState extends State<InitialSessionWrapper> {
       );
     }
 
-    // Если устройство настроено как Родитель
+    // Если устройство настроено как Родитель — проверяем разблокировку текущей сессии
     if (_userType == 'parent' && _userUid != null && _userUid!.isNotEmpty) {
-      return const ParentPanelScreen();
+      if (ParentSecurityService.isSessionUnlocked) {
+        return const ParentPanelScreen();
+      }
+      return const ParentLockScreen(
+        childDashboard: ParentPanelScreen(),
+      );
     }
 
     // Если устройство настроено как Ребёнок

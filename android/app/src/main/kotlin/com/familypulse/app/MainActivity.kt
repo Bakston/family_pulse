@@ -14,12 +14,12 @@ import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
 import android.text.TextUtils
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.util.Calendar
 
-class MainActivity : FlutterActivity() {
+class MainActivity : FlutterFragmentActivity() {
     private val USAGE_CHANNEL = "com.example.family_pulse/usage_stats"
     private val ADMIN_CHANNEL = "com.example.family_pulse/device_admin"
     private val VPN_REQUEST_CODE = 7071

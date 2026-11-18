@@ -10,6 +10,7 @@ import 'core/services/chat_notification_service.dart';
 import 'core/services/family_chat_service.dart';
 import 'core/services/github_update_service.dart';
 import 'core/services/location_service.dart';
+import 'core/services/parent_security_service.dart';
 import 'features/auth/initial_session_wrapper.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -35,6 +36,8 @@ void main() async {
       unawaited(_bootstrapChildChatNotifications(childId));
     }
   } else if (userType == 'parent') {
+    // При каждом холодном запуске (в т.ч. после смахивания из недавних) сессия заблокирована
+    ParentSecurityService.isSessionUnlocked = false;
     final uid = prefs.getString('user_uid') ?? '';
     if (uid.isNotEmpty) {
       unawaited(_bootstrapParentChatNotifications(uid));
@@ -81,16 +84,44 @@ class FamilyPulseApp extends StatefulWidget {
   State<FamilyPulseApp> createState() => _FamilyPulseAppState();
 }
 
-class _FamilyPulseAppState extends State<FamilyPulseApp> {
+class _FamilyPulseAppState extends State<FamilyPulseApp> with WidgetsBindingObserver {
+  bool _wasUnlockedBeforePause = false;
+
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       final context = navigatorKey.currentContext;
       if (context != null) {
         GithubUpdateService.checkForUpdates(context, silent: true);
       }
     });
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.paused || state == AppLifecycleState.detached) {
+      // Запоминаем, был ли родитель в разблокированной панели, и сбрасываем доступ
+      if (ParentSecurityService.isSessionUnlocked) {
+        _wasUnlockedBeforePause = true;
+        ParentSecurityService.isSessionUnlocked = false;
+      }
+    } else if (state == AppLifecycleState.resumed) {
+      if (_wasUnlockedBeforePause) {
+        _wasUnlockedBeforePause = false;
+        navigatorKey.currentState?.pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const InitialSessionWrapper()),
+          (route) => false,
+        );
+      }
+    }
   }
 
   @override
