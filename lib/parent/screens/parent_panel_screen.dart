@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_database/firebase_database.dart';
@@ -69,6 +70,7 @@ class _ParentPanelScreenState extends State<ParentPanelScreen>
   String _localBirthDate = '';
   String _localAvatarHash = '';
   bool _notificationsDisabledWarning = false;
+  bool _didRunSilentUpdateCheck = false;
 
   late Timer _clockTimer;
   Timer? _presenceTimer;
@@ -171,6 +173,15 @@ class _ParentPanelScreenState extends State<ParentPanelScreen>
 
     _updateMyPresence(isOnline: true);
     await _refreshNotificationPermissionState(requestIfNeeded: true);
+
+    if (!_didRunSilentUpdateCheck && mounted) {
+      _didRunSilentUpdateCheck = true;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          GithubUpdateService.checkForUpdates(context, silent: true);
+        }
+      });
+    }
   }
 
   Future<void> _openMyProfile() async {
@@ -655,14 +666,20 @@ class _ParentPanelScreenState extends State<ParentPanelScreen>
   Future<void> _performLogout() async {
     await ChatNotificationService.stopListening();
     await _updateMyPresence(isOnline: false);
+    await ParentSecurityService.clearPin(clearBackup: true);
     ParentSecurityService.isSessionUnlocked = false;
 
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+
     final prefs = await SharedPreferences.getInstance();
-    if (_currentUid.isNotEmpty) {
-      await prefs.setString('saved_device_uid', _currentUid);
-    }
+    await prefs.remove('saved_device_uid');
     await prefs.remove('user_type');
     await prefs.remove('user_uid');
+    await prefs.remove('user_name');
+    await prefs.remove('user_role');
+    await prefs.remove('user_birth_date');
     await prefs.remove('user_avatar_hash');
 
     await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);

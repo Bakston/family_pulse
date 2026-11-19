@@ -117,6 +117,14 @@ class _ChildPanelScreenState extends State<ChildPanelScreen>
     } catch (_) {}
   }
 
+  void _triggerSilentUpdateCheck() {
+    if (!mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      GithubUpdateService.checkForUpdates(context, silent: true);
+    });
+  }
+
   Future<void> _initLauncher() async {
     final prefs = await SharedPreferences.getInstance();
     final savedId = prefs.getString('saved_child_id') ?? '';
@@ -133,6 +141,7 @@ class _ChildPanelScreenState extends State<ChildPanelScreen>
 
     await _refreshDefaultLauncherState();
     await _loadDeviceApps();
+    _triggerSilentUpdateCheck();
 
     if (savedId.isEmpty) return;
 
@@ -164,6 +173,7 @@ class _ChildPanelScreenState extends State<ChildPanelScreen>
       await DailyTasksService.processDailyTasks(savedId);
       await AppControlService.syncInstalledApps();
       await _loadDeviceApps();
+      _triggerSilentUpdateCheck();
     });
   }
 
@@ -752,7 +762,7 @@ class _ChildPanelScreenState extends State<ChildPanelScreen>
                 ),
                 onTap: () {
                   Navigator.pop(sheetContext);
-                  GithubUpdateService.checkForUpdates(context);
+                  GithubUpdateService.checkForUpdates(context, silent: false);
                 },
               ),
               ListTile(

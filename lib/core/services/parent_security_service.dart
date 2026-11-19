@@ -1,9 +1,11 @@
 import 'package:flutter/services.dart';
 import 'package:local_auth/local_auth.dart';
+import 'package:local_auth_android/local_auth_android.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class ParentSecurityService {
   static const String _pinKey = 'parent_security_pin';
+  static const String _backupPinKey = 'saved_device_pin';
   static const String _biometricEnabledKey = 'parent_biometric_enabled';
 
   static final LocalAuthentication _auth = LocalAuthentication();
@@ -14,29 +16,41 @@ class ParentSecurityService {
 
   static Future<bool> hasPin() async {
     final prefs = await SharedPreferences.getInstance();
-    final pin = prefs.getString(_pinKey);
+    var pin = prefs.getString(_pinKey);
+    if (pin == null || pin.length != 4) {
+      final backupPin = prefs.getString(_backupPinKey);
+      if (backupPin != null && backupPin.length == 4) {
+        await prefs.setString(_pinKey, backupPin);
+        pin = backupPin;
+      }
+    }
     return pin != null && pin.length == 4;
   }
 
   static Future<void> savePin(String pin) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setString(_pinKey, pin);
+    await prefs.setString(_backupPinKey, pin);
     isSessionUnlocked = true;
   }
 
   static Future<bool> verifyPin(String inputPin) async {
     final prefs = await SharedPreferences.getInstance();
-    final savedPin = prefs.getString(_pinKey);
+    final savedPin = prefs.getString(_pinKey) ?? prefs.getString(_backupPinKey);
     if (savedPin != null && savedPin == inputPin) {
+      await prefs.setString(_pinKey, savedPin);
       isSessionUnlocked = true;
       return true;
     }
     return false;
   }
 
-  static Future<void> clearPin() async {
+  static Future<void> clearPin({bool clearBackup = false}) async {
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_pinKey);
+    if (clearBackup) {
+      await prefs.remove(_backupPinKey);
+    }
     isSessionUnlocked = false;
   }
 
@@ -64,6 +78,12 @@ class ParentSecurityService {
     try {
       final didAuthenticate = await _auth.authenticate(
         localizedReason: 'Подтвердите личность для входа в панель родителя',
+        authMessages: const [
+          AndroidAuthMessages(
+            signInTitle: 'Вход в FamilyPulse',
+            cancelButton: 'Отмена',
+          ),
+        ],
         options: const AuthenticationOptions(
           stickyAuth: true,
           biometricOnly: true,

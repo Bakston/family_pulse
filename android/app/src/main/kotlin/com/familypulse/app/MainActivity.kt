@@ -14,9 +14,11 @@ import android.os.Bundle
 import android.os.Process
 import android.provider.Settings
 import android.text.TextUtils
+import androidx.core.content.FileProvider
 import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.File
 import java.util.Calendar
 
 class MainActivity : FlutterFragmentActivity() {
@@ -53,10 +55,11 @@ class MainActivity : FlutterFragmentActivity() {
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
 
-        // При холодном запуске приложения (в т.ч. после перезагрузки) сбрасываем временный 5-минутный обход
+        // При холодном запуске сбрасываем временные обходы
         getSharedPreferences("family_pulse_native", Context.MODE_PRIVATE)
             .edit()
             .putLong("parent_bypass_until", 0L)
+            .putLong("update_bypass_until", 0L)
             .apply()
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, USAGE_CHANNEL).setMethodCallHandler { call, result ->
@@ -220,6 +223,84 @@ class MainActivity : FlutterFragmentActivity() {
                     }
                     prefs.edit().putLong("parent_bypass_until", bypassUntil).apply()
                     result.success(true)
+                }
+
+                "getUpdateDirectoryPath" -> {
+                    val dir = applicationContext.getExternalFilesDir("updates")
+                    if (dir != null && !dir.exists()) {
+                        dir.mkdirs()
+                    }
+                    result.success(dir?.absolutePath)
+                }
+
+                "installOwnUpdateApk" -> {
+                    val filePath = call.argument<String>("filePath")
+                    if (filePath.isNullOrEmpty()) {
+                        result.success(false)
+                        return@setMethodCallHandler
+                    }
+                    try {
+                        val apkFile = File(filePath)
+                        if (!apkFile.exists()) {
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+
+                        // Даём карт-бланш на установку нашего обновления на 3 минуты на обеих ролях
+                        val until = System.currentTimeMillis() + 3 * 60_000L
+                        getSharedPreferences("family_pulse_native", Context.MODE_PRIVATE)
+                            .edit()
+                            .putLong("update_bypass_until", until)
+                            .putLong("parent_bypass_until", until)
+                            .apply()
+
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O && !packageManager.canRequestPackageInstalls()) {
+                            val permIntent = Intent(
+                                Settings.ACTION_MANAGE_UNKNOWN_APP_SOURCES,
+                                Uri.parse("package:$packageName")
+                            ).apply {
+                                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            }
+                            startActivity(permIntent)
+                            result.success(false)
+                            return@setMethodCallHandler
+                        }
+
+                        val apkUri = FileProvider.getUriForFile(
+                            this,
+                            "$packageName.fileprovider",
+                            apkFile
+                        )
+
+                        @Suppress("DEPRECATION")
+                        val installIntent = Intent(Intent.ACTION_INSTALL_PACKAGE).apply {
+                            setDataAndType(apkUri, "application/vnd.android.package-archive")
+                            addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                            putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
+                        }
+
+                        // Направляем напрямую в системный PackageInstaller, минуя Huawei AppGallery
+                        val systemInstaller = listOf(
+                            "com.google.android.packageinstaller",
+                            "com.android.packageinstaller"
+                        ).firstOrNull { pkg ->
+                            try {
+                                packageManager.getPackageInfo(pkg, 0)
+                                true
+                            } catch (_: Exception) {
+                                false
+                            }
+                        }
+                        if (systemInstaller != null) {
+                            installIntent.setPackage(systemInstaller)
+                        }
+
+                        startActivity(installIntent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.error("INSTALL_ERROR", e.message, null)
+                    }
                 }
 
                 "setSetupCompleted" -> {

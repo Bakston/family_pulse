@@ -28,7 +28,7 @@ class AppTheme {
   // ====================================================
   // 3. РОДИТЕЛЬСКАЯ / НЕЙТРАЛЬНАЯ ВЕРСИЯ («Светлый дашборд»)
   // ====================================================
-  static const String parentBackgroundAsset = 'assets/images/background_parents.jpg';
+  static const String parentBackgroundAsset = 'assets/images/background_base.jpg';
   static const Color parentBackground = Color(0xFFF5F4F0);
   static const Color parentGlassPanel = Color(0x99E8ECE9); // 60% opacity
   static const Color parentPrimaryAccent = Color(0xFF36454F);

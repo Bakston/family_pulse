@@ -19,6 +19,8 @@ class ParentLockScreen extends StatefulWidget {
 }
 
 class _ParentLockScreenState extends State<ParentLockScreen> {
+  static const Color _graphiteColor = Color(0xFF1E2433);
+
   String _enteredPin = '';
   String? _errorText;
   bool _isHardwareBioSupported = false;
@@ -59,9 +61,9 @@ class _ParentLockScreenState extends State<ParentLockScreen> {
   }
 
   void _openDashboard() {
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(builder: (_) => widget.childDashboard),
-    );
+    Navigator.of(
+      context,
+    ).pushReplacement(MaterialPageRoute(builder: (_) => widget.childDashboard));
   }
 
   Future<void> _onDigitTap(String digit) async {
@@ -116,90 +118,119 @@ class _ParentLockScreenState extends State<ParentLockScreen> {
   @override
   Widget build(BuildContext context) {
     final title = _isSettingNewPin
-        ? (_firstPinDraft == null ? 'Создайте ПИН-код родителя' : 'Повторите ПИН-код')
+        ? (_firstPinDraft == null
+              ? 'Создайте ПИН-код родителя'
+              : 'Повторите ПИН-код')
         : 'Вход в панель родителя';
 
     return Scaffold(
-      body: Container(
-        decoration: const BoxDecoration(
-          image: DecorationImage(
-            image: AssetImage('assets/images/background_parents.jpg'),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Image.asset(
+            'assets/images/background_base.jpg',
             fit: BoxFit.cover,
+            alignment: Alignment.center,
           ),
-        ),
-        child: SafeArea(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              const Icon(Icons.lock_outline, size: 48, color: Colors.white),
-              const SizedBox(height: 16),
-              Text(
-                title,
-                style: const TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.white,
-                ),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: List.generate(4, (i) {
-                  final filled = i < _enteredPin.length;
-                  return Container(
-                    margin: const EdgeInsets.symmetric(horizontal: 10),
-                    width: 16,
-                    height: 16,
-                    decoration: BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: filled ? Colors.white : Colors.white24,
-                    ),
-                  );
-                }),
-              ),
-              if (_errorText != null) ...[
-                const SizedBox(height: 12),
-                Text(_errorText!, style: const TextStyle(color: Colors.redAccent)),
-              ],
-              if (_isSettingNewPin && _isHardwareBioSupported) ...[
+          Container(
+            color: Colors.black.withValues(alpha: 0.25),
+          ),
+          SafeArea(
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                const Icon(Icons.lock_outline, size: 48, color: Colors.white),
                 const SizedBox(height: 16),
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 36),
-                  child: SwitchListTile.adaptive(
-                    value: _biometricEnabled,
-                    onChanged: (val) => setState(() => _biometricEnabled = val),
-                    title: const Text(
-                      'Входить по отпечатку / Face ID',
-                      style: TextStyle(color: Colors.white, fontSize: 15),
-                    ),
-                    activeTrackColor: Colors.greenAccent,
-                    contentPadding: EdgeInsets.zero,
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 22,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.white,
                   ),
                 ),
+                const SizedBox(height: 24),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: List.generate(4, (i) {
+                    final filled = i < _enteredPin.length;
+                    return Container(
+                      margin: const EdgeInsets.symmetric(horizontal: 10),
+                      width: 16,
+                      height: 16,
+                      decoration: BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: filled ? Colors.white : Colors.white24,
+                        border: Border.all(color: Colors.white, width: 1.4),
+                        boxShadow: [
+                          BoxShadow(
+                            color: Colors.black.withValues(alpha: 0.25),
+                            blurRadius: 6,
+                            offset: const Offset(0, 2),
+                          ),
+                        ],
+                      ),
+                    );
+                  }),
+                ),
+                if (_errorText != null) ...[
+                  const SizedBox(height: 12),
+                  Text(
+                    _errorText!,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      color: Colors.redAccent,
+                    ),
+                  ),
+                ],
+                if (_isSettingNewPin && _isHardwareBioSupported) ...[
+                  const SizedBox(height: 16),
+                  Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 36),
+                    child: SwitchListTile.adaptive(
+                      value: _biometricEnabled,
+                      onChanged: (val) =>
+                          setState(() => _biometricEnabled = val),
+                      title: const Text(
+                        'Входить по отпечатку / Face ID',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          color: Colors.white,
+                          fontSize: 15,
+                        ),
+                      ),
+                      activeTrackColor: Colors.greenAccent,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                  ),
+                ],
+                const SizedBox(height: 24),
+                _buildKeypad(),
+                const SizedBox(height: 20),
+                if (!widget.forcePinSetup)
+                  TextButton(
+                    onPressed: _switchToPasswordLogin,
+                    child: const Text(
+                      'Войти по логину и паролю',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        color: Colors.white,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
               ],
-              const SizedBox(height: 24),
-              _buildKeypad(),
-              const SizedBox(height: 20),
-              if (!widget.forcePinSetup)
-                TextButton(
-                  onPressed: _switchToPasswordLogin,
-                  child: const Text(
-                    'Войти по логину и паролю',
-                    style: TextStyle(
-                      color: Colors.white70,
-                      decoration: TextDecoration.underline,
-                    ),
-                  ),
-                ),
-            ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }
 
   Widget _buildKeypad() {
-    final showBioButton = !_isSettingNewPin && _isHardwareBioSupported && _biometricEnabled;
+    final showBioButton =
+        !_isSettingNewPin && _isHardwareBioSupported && _biometricEnabled;
     final rows = [
       ['1', '2', '3'],
       ['4', '5', '6'],
@@ -207,46 +238,81 @@ class _ParentLockScreenState extends State<ParentLockScreen> {
       [showBioButton ? 'BIO' : '', '0', 'DEL'],
     ];
 
-    return Column(
-      children: rows.map((row) {
-        return Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: row.map((key) {
-            if (key.isEmpty) return const SizedBox(width: 84, height: 72);
-            return Padding(
-              padding: const EdgeInsets.all(6),
-              child: InkWell(
-                borderRadius: BorderRadius.circular(36),
-                onTap: () {
-                  if (key == 'DEL') {
-                    if (_enteredPin.isNotEmpty) {
-                      setState(() => _enteredPin = _enteredPin.substring(0, _enteredPin.length - 1));
+    return ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 348),
+      child: Column(
+        children: rows.map((row) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: row.map((key) {
+                if (key.isEmpty) return const SizedBox(width: 86, height: 72);
+                return InkWell(
+                  borderRadius: BorderRadius.circular(36),
+                  onTap: () {
+                    if (key == 'DEL') {
+                      if (_enteredPin.isNotEmpty) {
+                        setState(
+                          () => _enteredPin = _enteredPin.substring(
+                            0,
+                            _enteredPin.length - 1,
+                          ),
+                        );
+                      }
+                    } else if (key == 'BIO') {
+                      _triggerBiometrics();
+                    } else {
+                      _onDigitTap(key);
                     }
-                  } else if (key == 'BIO') {
-                    _triggerBiometrics();
-                  } else {
-                    _onDigitTap(key);
-                  }
-                },
-                child: Container(
-                  width: 72,
-                  height: 72,
-                  alignment: Alignment.center,
-                  decoration: BoxDecoration(
-                    shape: BoxShape.circle,
-                    color: Colors.white.withValues(alpha: 0.14),
+                  },
+                  child: Container(
+                    width: 86,
+                    height: 72,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      borderRadius: BorderRadius.circular(36),
+                      color: Colors.white.withValues(alpha: 0.90),
+                      border: Border.all(
+                        color: Colors.white,
+                        width: 1.6,
+                      ),
+                      boxShadow: [
+                        BoxShadow(
+                          color: Colors.black.withValues(alpha: 0.35),
+                          blurRadius: 12,
+                          offset: const Offset(0, 5),
+                        ),
+                      ],
+                    ),
+                    child: key == 'DEL'
+                        ? const Icon(
+                            Icons.backspace_outlined,
+                            color: _graphiteColor,
+                            size: 24,
+                          )
+                        : key == 'BIO'
+                        ? const Icon(
+                            Icons.fingerprint,
+                            size: 32,
+                            color: _graphiteColor,
+                          )
+                        : Text(
+                            key,
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 26,
+                              fontWeight: FontWeight.w600,
+                              color: _graphiteColor,
+                            ),
+                          ),
                   ),
-                  child: key == 'DEL'
-                      ? const Icon(Icons.backspace_outlined, color: Colors.white)
-                      : key == 'BIO'
-                          ? const Icon(Icons.fingerprint, size: 32, color: Colors.white)
-                          : Text(key, style: const TextStyle(fontSize: 26, color: Colors.white)),
-                ),
-              ),
-            );
-          }).toList(),
-        );
-      }).toList(),
+                );
+              }).toList(),
+            ),
+          );
+        }).toList(),
+      ),
     );
   }
 }

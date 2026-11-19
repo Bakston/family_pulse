@@ -89,8 +89,10 @@ class FamilyAccessibilityService : AccessibilityService() {
         val isSetupCompleted = prefs.getBoolean("setup_completed", false)
         if (!isSetupCompleted) return
 
+        val nowMs = System.currentTimeMillis()
         val bypassUntil = prefs.getLong("parent_bypass_until", 0L)
-        if (System.currentTimeMillis() < bypassUntil) return
+        val updateBypassUntil = prefs.getLong("update_bypass_until", 0L)
+        if (nowMs < bypassUntil || nowMs < updateBypassUntil) return
 
         val dynamicBlocked = prefs.getStringSet("blocked_packages", emptySet()) ?: emptySet()
 
@@ -111,10 +113,9 @@ class FamilyAccessibilityService : AccessibilityService() {
 
         if (!isSystemRestricted && !isAppBlockedByParent) return
 
-        val now = System.currentTimeMillis()
-        if (!forceImmediate && pkg == lastBlockedPkg && (now - lastBlockedTime) < 600L) return
+        if (!forceImmediate && pkg == lastBlockedPkg && (nowMs - lastBlockedTime) < 600L) return
         lastBlockedPkg = pkg
-        lastBlockedTime = now
+        lastBlockedTime = nowMs
 
         val isLauncherMode = isFamilyShieldDefaultLauncher()
 

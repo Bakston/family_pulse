@@ -1,9 +1,9 @@
 import 'package:material_ui/material_ui.dart';
-import 'package:flutter/services.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/services/parent_security_service.dart';
 import '../../parent/screens/parent_panel_screen.dart';
 import '../../child/screens/child_join_screen.dart';
 import '../../features/widgets/family_calendar_widget.dart';
@@ -27,6 +27,7 @@ class AppBackgroundWrapper extends StatelessWidget {
           child: Image.asset(
             AppTheme.parentBackgroundAsset,
             fit: BoxFit.cover,
+            alignment: Alignment.center,
           ),
         ),
         Positioned.fill(
@@ -44,99 +45,24 @@ class AppBackgroundWrapper extends StatelessWidget {
   }
 }
 
-/// ЭКРАН 1: Главное меню с кнопкой "МОЯ СЕМЬЯ"
-class WelcomeScreen extends StatelessWidget {
-  const WelcomeScreen({super.key});
-
-  @override
-  Widget build(BuildContext context) {
-    return AppBackgroundWrapper(
-      child: Padding(
-        padding: const EdgeInsets.all(24.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 16.0),
-              child: Text(
-                'FamilyPulse',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 32,
-                  fontWeight: FontWeight.bold,
-                  color: parentTextPrimary,
-                  letterSpacing: 3,
-                ),
-              ),
-            ),
-            ElevatedButton.icon(
-              style: ElevatedButton.styleFrom(
-                minimumSize: const Size.fromHeight(60),
-                backgroundColor: parentGlassPanel,
-                foregroundColor: parentTextPrimary,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(30),
-                  side: BorderSide(
-                    color: Colors.white.withValues(alpha: 0.3),
-                    width: 1.5,
-                  ),
-                ),
-              ),
-              icon: const Icon(Icons.family_restroom, size: 28, color: parentTextPrimary),
-              label: const Text(
-                'МОЯ СЕМЬЯ',
-                style: TextStyle(
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                  color: parentTextPrimary,
-                ),
-              ),
-              onPressed: () {
-                Navigator.push(
-                  context,
-                  MaterialPageRoute(
-                    builder: (context) => const RoleSelectionScreen(),
-                  ),
-                );
-              },
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// ЭКРАН 2: Выбор роли с кнопкой ВХОД над кнопками регистрации
+/// Экран выбора режима: экран поделён на 2 части — в центре верхней «РЕБЁНОК», в центре нижней «РОДИТЕЛЬ»
 class RoleSelectionScreen extends StatelessWidget {
   const RoleSelectionScreen({super.key});
 
-  Future<void> _handleLoginTap(BuildContext context) async {
-    final prefs = await SharedPreferences.getInstance();
-    final savedUid = prefs.getString('saved_device_uid') ?? '';
-    final savedPin = prefs.getString('saved_device_pin') ?? '';
-
-    if (!context.mounted) return;
-
-    if (savedUid.isNotEmpty && savedPin.isNotEmpty) {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => PinLoginScreen(
-            expectedUid: savedUid,
-            expectedPin: savedPin,
-          ),
+  ButtonStyle _roleButtonStyle() {
+    return ElevatedButton.styleFrom(
+      minimumSize: const Size(220, 62),
+      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
+      backgroundColor: parentGlassPanel,
+      foregroundColor: parentTextPrimary,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(30),
+        side: BorderSide(
+          color: Colors.white.withValues(alpha: 0.35),
+          width: 1.5,
         ),
-      );
-    } else {
-      Navigator.push(
-        context,
-        MaterialPageRoute(
-          builder: (context) => const PasswordLoginScreen(),
-        ),
-      );
-    }
+      ),
+    );
   }
 
   @override
@@ -145,293 +71,80 @@ class RoleSelectionScreen extends StatelessWidget {
       appBar: AppBar(
         backgroundColor: Colors.transparent,
         elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text('Выбор режима', style: TextStyle(color: parentTextPrimary)),
+        automaticallyImplyLeading: false,
+        title: const Text(
+          'FamilyPulse',
+          style: TextStyle(color: parentTextPrimary, fontWeight: FontWeight.bold),
+        ),
       ),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24.0, 24.0, 24.0, 36.0),
-        child: Column(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            const Padding(
-              padding: EdgeInsets.only(top: 16.0),
-              child: Text(
-                'Кто будет использовать это устройство?',
-                textAlign: TextAlign.center,
-                style: TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.w600,
+      child: Column(
+        children: [
+          // Верхняя половина экрана — по центру кнопка РЕБЁНОК
+          Expanded(
+            child: Center(
+              child: ElevatedButton.icon(
+                style: _roleButtonStyle(),
+                icon: const Icon(
+                  Icons.child_care,
+                  size: 28,
                   color: parentTextPrimary,
                 ),
-              ),
-            ),
-            Column(
-              children: [
-                // Кнопка ВХОД над кнопками выбора роли
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(60),
-                    backgroundColor: parentGlassPanel,
-                    foregroundColor: parentTextPrimary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.3),
-                        width: 1.5,
-                      ),
-                    ),
+                label: const Text(
+                  'РЕБЁНОК',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: parentTextPrimary,
                   ),
-                  icon: const Icon(Icons.login, size: 28, color: parentTextPrimary),
-                  label: const Text(
-                    'ВХОД',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: parentTextPrimary,
-                    ),
-                  ),
-                  onPressed: () => _handleLoginTap(context),
                 ),
-                const SizedBox(height: 20),
-                const Divider(color: Colors.white24),
-                const SizedBox(height: 16),
-
-                // Кнопка регистрации РОДИТЕЛЬ
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(60),
-                    backgroundColor: parentGlassPanel,
-                    foregroundColor: parentTextPrimary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.3),
-                        width: 1.5,
-                      ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ChildJoinScreen(),
                     ),
-                  ),
-                  icon: const Icon(Icons.admin_panel_settings, size: 28, color: parentTextPrimary),
-                  label: const Text(
-                    'РОДИТЕЛЬ',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: parentTextPrimary,
-                    ),
-                  ),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ParentRegistrationScreen(),
-                      ),
-                    );
-                  },
-                ),
-                const SizedBox(height: 16),
-
-                // Кнопка регистрации РЕБЁНОК
-                ElevatedButton.icon(
-                  style: ElevatedButton.styleFrom(
-                    minimumSize: const Size.fromHeight(60),
-                    backgroundColor: parentGlassPanel,
-                    foregroundColor: parentTextPrimary,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(30),
-                      side: BorderSide(
-                        color: Colors.white.withValues(alpha: 0.3),
-                        width: 1.5,
-                      ),
-                    ),
-                  ),
-                  icon: const Icon(Icons.child_care, size: 28, color: parentTextPrimary),
-                  label: const Text(
-                    'РЕБЁНОК',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.bold,
-                      color: parentTextPrimary,
-                    ),
-                  ),
-                  onPressed: () {
-                    Navigator.push(
-                      context,
-                      MaterialPageRoute(
-                        builder: (context) => const ChildJoinScreen(),
-                      ),
-                    );
-                  },
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// ЭКРАН ВХОДА ПО ПИН-КОДУ (для знакомого устройства)
-class PinLoginScreen extends StatefulWidget {
-  final String expectedUid;
-  final String expectedPin;
-
-  const PinLoginScreen({
-    super.key,
-    required this.expectedUid,
-    required this.expectedPin,
-  });
-
-  @override
-  State<PinLoginScreen> createState() => _PinLoginScreenState();
-}
-
-class _PinLoginScreenState extends State<PinLoginScreen> {
-  final TextEditingController _pinController = TextEditingController();
-  bool _isChecking = false;
-
-  @override
-  void dispose() {
-    _pinController.dispose();
-    super.dispose();
-  }
-
-  Future<void> _verifyPin() async {
-    final enteredPin = _pinController.text.trim();
-    if (enteredPin != widget.expectedPin) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Неверный ПИН-код')),
-      );
-      return;
-    }
-
-    setState(() => _isChecking = true);
-
-    try {
-      final snapshot = await FirebaseDatabase.instance
-          .ref('users/${widget.expectedUid}')
-          .get();
-
-      if (!snapshot.exists || snapshot.value == null) {
-        throw Exception('Профиль не найден в базе данных');
-      }
-
-      final data = Map<dynamic, dynamic>.from(snapshot.value as Map);
-      final prefs = await SharedPreferences.getInstance();
-      await prefs.setString('user_type', 'parent');
-      await prefs.setString('user_uid', widget.expectedUid);
-      await prefs.setString('user_name', data['name']?.toString() ?? 'Родитель');
-      await prefs.setString('user_role', data['familyRole']?.toString() ?? 'Родитель');
-      await prefs.setString('user_birth_date', data['birthDate']?.toString() ?? '');
-
-      if (!mounted) return;
-      Navigator.pushAndRemoveUntil(
-        context,
-        MaterialPageRoute(builder: (context) => const ParentPanelScreen()),
-        (route) => false,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _isChecking = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Ошибка входа: $e')),
-      );
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return AppBackgroundWrapper(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text('Быстрый вход', style: TextStyle(color: parentTextPrimary)),
-      ),
-      child: Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Card(
-            elevation: 8,
-            color: Colors.white.withValues(alpha: 0.92),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
-            child: Padding(
-              padding: const EdgeInsets.all(24.0),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  const Icon(Icons.lock_open, size: 48, color: Colors.blue),
-                  const SizedBox(height: 12),
-                  const Text(
-                    'Введите ПИН-код',
-                    textAlign: TextAlign.center,
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black87,
-                    ),
-                  ),
-                  const SizedBox(height: 20),
-                  TextField(
-                    controller: _pinController,
-                    obscureText: true,
-                    textAlign: TextAlign.center,
-                    keyboardType: TextInputType.number,
-                    style: const TextStyle(fontSize: 24, letterSpacing: 12),
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                      LengthLimitingTextInputFormatter(4),
-                    ],
-                    decoration: InputDecoration(
-                      hintText: '••••',
-                      border: OutlineInputBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                    ),
-                  ),
-                  const SizedBox(height: 24),
-                  ElevatedButton(
-                    style: ElevatedButton.styleFrom(
-                      minimumSize: const Size.fromHeight(56),
-                      backgroundColor: Colors.blue.shade700,
-                      foregroundColor: Colors.white,
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(30),
-                      ),
-                    ),
-                    onPressed: _isChecking ? null : _verifyPin,
-                    child: _isChecking
-                        ? const CircularProgressIndicator(color: Colors.white)
-                        : const Text(
-                            'ВОЙТИ',
-                            style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                          ),
-                  ),
-                  const SizedBox(height: 12),
-                  TextButton(
-                    onPressed: () {
-                      Navigator.pushReplacement(
-                        context,
-                        MaterialPageRoute(
-                          builder: (context) => const PasswordLoginScreen(),
-                        ),
-                      );
-                    },
-                    child: const Text('Войти по логину и паролю'),
-                  ),
-                ],
+                  );
+                },
               ),
             ),
           ),
-        ),
+
+          // Нижняя половина экрана — по центру кнопка РОДИТЕЛЬ
+          Expanded(
+            child: Center(
+              child: ElevatedButton.icon(
+                style: _roleButtonStyle(),
+                icon: const Icon(
+                  Icons.admin_panel_settings,
+                  size: 28,
+                  color: parentTextPrimary,
+                ),
+                label: const Text(
+                  'РОДИТЕЛЬ',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: parentTextPrimary,
+                  ),
+                ),
+                onPressed: () {
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => const ParentRegistrationScreen(),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// ЭКРАН АВТОРИЗАЦИИ ПО ЛОГИНУ И ПАРОЛЮ (для нового устройства)
+/// Экран авторизации по логину и паролю
 class PasswordLoginScreen extends StatefulWidget {
   const PasswordLoginScreen({super.key});
 
@@ -499,10 +212,17 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
         'user_birth_date',
         foundUserData!['birthDate']?.toString() ?? '',
       );
+      await prefs.setString(
+        'user_avatar_hash',
+        foundUserData!['avatarHash']?.toString() ?? '',
+      );
+      await prefs.setBool('parent_profile_ready_$foundUid', true);
 
-      final userPin = foundUserData!['pin']?.toString() ?? '';
-      if (userPin.isNotEmpty) {
-        await prefs.setString('saved_device_pin', userPin);
+      final userPin = foundUserData!['pin']?.toString().trim() ?? '';
+      if (userPin.length == 4) {
+        await ParentSecurityService.savePin(userPin);
+      } else {
+        ParentSecurityService.isSessionUnlocked = true;
       }
 
       if (!mounted) return;
@@ -527,7 +247,10 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
         backgroundColor: Colors.transparent,
         elevation: 0,
         iconTheme: const IconThemeData(color: Colors.white),
-        title: const Text('Авторизация', style: TextStyle(color: parentTextPrimary)),
+        title: const Text(
+          'Авторизация',
+          style: TextStyle(color: parentTextPrimary),
+        ),
       ),
       child: Center(
         child: SingleChildScrollView(
@@ -535,7 +258,9 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
           child: Card(
             elevation: 8,
             color: Colors.white.withValues(alpha: 0.92),
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(30)),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(30),
+            ),
             child: Padding(
               padding: const EdgeInsets.all(20.0),
               child: Form(
@@ -612,7 +337,7 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
   }
 }
 
-/// ЭКРАН 3: Анкета Родителя (Имя, Роль: Мама/Папа, Дата рождения, кнопка СОЗДАТЬ)
+/// Анкета Родителя: СОЗДАТЬ, У МЕНЯ ЕСТЬ ПРОФИЛЬ, ОТМЕНА
 class ParentRegistrationScreen extends StatefulWidget {
   const ParentRegistrationScreen({super.key});
 
@@ -692,6 +417,7 @@ class _ParentRegistrationScreenState extends State<ParentRegistrationScreen> {
       await prefs.setString('user_role', _selectedRole);
       await prefs.setString('user_birth_date', birthDateStr);
       await prefs.setBool('parent_profile_ready_$generatedUid', true);
+      ParentSecurityService.isSessionUnlocked = true;
 
       if (!mounted) return;
 
@@ -723,7 +449,7 @@ class _ParentRegistrationScreenState extends State<ParentRegistrationScreen> {
       ),
       child: Center(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(5.0),
+          padding: const EdgeInsets.all(12.0),
           child: Card(
             elevation: 8,
             color: Colors.white.withValues(alpha: 0.92),
@@ -812,29 +538,26 @@ class _ParentRegistrationScreenState extends State<ParentRegistrationScreen> {
                         ),
                       ),
                     ),
-                    const SizedBox(height: 28),
+                    const SizedBox(height: 24),
 
+                    // Кнопка СОЗДАТЬ
                     ElevatedButton(
                       style: ElevatedButton.styleFrom(
-                        minimumSize: const Size.fromHeight(60),
-                        backgroundColor: parentGlassPanel,
-                        foregroundColor: parentTextPrimary,
+                        minimumSize: const Size.fromHeight(54),
+                        backgroundColor: Colors.blue.shade700,
+                        foregroundColor: Colors.white,
                         shape: RoundedRectangleBorder(
                           borderRadius: BorderRadius.circular(30),
-                          side: BorderSide(
-                            color: Colors.white.withValues(alpha: 0.3),
-                            width: 1.5,
-                          ),
                         ),
                       ),
                       onPressed: _isSaving ? null : _createParentProfile,
                       child: _isSaving
                           ? const SizedBox(
-                              height: 24,
-                              width: 24,
+                              height: 22,
+                              width: 22,
                               child: CircularProgressIndicator(
                                 strokeWidth: 2,
-                                color: parentTextPrimary,
+                                color: Colors.white,
                               ),
                             )
                           : const Text(
@@ -842,9 +565,54 @@ class _ParentRegistrationScreenState extends State<ParentRegistrationScreen> {
                               style: TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.bold,
-                                color: parentTextPrimary,
                               ),
                             ),
+                    ),
+                    const SizedBox(height: 10),
+
+                    // Кнопка У МЕНЯ ЕСТЬ ПРОФИЛЬ -> Авторизация по логину и паролю
+                    OutlinedButton.icon(
+                      style: OutlinedButton.styleFrom(
+                        minimumSize: const Size.fromHeight(50),
+                        foregroundColor: Colors.blue.shade800,
+                        side: BorderSide(color: Colors.blue.shade700),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(30),
+                        ),
+                      ),
+                      icon: const Icon(Icons.login, size: 20),
+                      label: const Text(
+                        'У МЕНЯ ЕСТЬ ПРОФИЛЬ',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      onPressed: _isSaving
+                          ? null
+                          : () {
+                              Navigator.push(
+                                context,
+                                MaterialPageRoute(
+                                  builder: (context) =>
+                                      const PasswordLoginScreen(),
+                                ),
+                              );
+                            },
+                    ),
+                    const SizedBox(height: 6),
+
+                    // Кнопка ОТМЕНА
+                    TextButton(
+                      onPressed: _isSaving ? null : () => Navigator.pop(context),
+                      child: const Text(
+                        'ОТМЕНА',
+                        style: TextStyle(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black54,
+                        ),
+                      ),
                     ),
                   ],
                 ),

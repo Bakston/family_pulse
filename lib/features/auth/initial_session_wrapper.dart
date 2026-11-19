@@ -21,6 +21,7 @@ class _InitialSessionWrapperState extends State<InitialSessionWrapper> {
   String? _userUid;
   String? _childId;
   String _childName = 'Ребёнок';
+  bool _hasParentSecurity = false;
 
   @override
   void initState() {
@@ -32,18 +33,24 @@ class _InitialSessionWrapperState extends State<InitialSessionWrapper> {
     final prefs = await SharedPreferences.getInstance();
     var userType = prefs.getString('user_type');
     var userUid = prefs.getString('user_uid');
+    final hasPin = await ParentSecurityService.hasPin();
 
-    // Если родитель вышел через "Войти по логину и паролю" (FirebaseAuth.signOut),
-    // очищаем сохраненную сессию, чтобы открыть экран входа.
-    if (userType == 'parent' && FirebaseAuth.instance.currentUser == null) {
-      await prefs.remove('user_type');
-      await prefs.remove('user_uid');
+    if (userType == 'parent' &&
+        (userUid == null || userUid.isEmpty) &&
+        !hasPin &&
+        FirebaseAuth.instance.currentUser == null) {
       userType = null;
       userUid = null;
     }
 
-    // Поддерживаем актуальный ключ 'saved_child_id' и резервный 'child_id'
-    final childId = prefs.getString('saved_child_id') ?? prefs.getString('child_id');
+    if ((userType == null || userType.isEmpty) &&
+        userUid != null &&
+        userUid.isNotEmpty) {
+      userType = 'parent';
+    }
+
+    final childId =
+        prefs.getString('saved_child_id') ?? prefs.getString('child_id');
     final childName = prefs.getString('saved_child_name') ?? 'Ребёнок';
 
     if (!mounted) return;
@@ -52,6 +59,7 @@ class _InitialSessionWrapperState extends State<InitialSessionWrapper> {
       _userUid = userUid;
       _childId = childId;
       _childName = childName;
+      _hasParentSecurity = hasPin;
       _isLoading = false;
     });
   }
@@ -65,8 +73,8 @@ class _InitialSessionWrapperState extends State<InitialSessionWrapper> {
       );
     }
 
-    // Если устройство настроено как Родитель — проверяем разблокировку текущей сессии
-    if (_userType == 'parent' && _userUid != null && _userUid!.isNotEmpty) {
+    if (_userType == 'parent' &&
+        ((_userUid != null && _userUid!.isNotEmpty) || _hasParentSecurity)) {
       if (ParentSecurityService.isSessionUnlocked) {
         return const ParentPanelScreen();
       }
@@ -75,12 +83,10 @@ class _InitialSessionWrapperState extends State<InitialSessionWrapper> {
       );
     }
 
-    // Если устройство настроено как Ребёнок
     if (_userType == 'child' && _childId != null && _childId!.isNotEmpty) {
       return ChildPanelScreen(childName: _childName);
     }
 
-    // Если сессии нет — показываем главное меню с кнопкой "МОЯ СЕМЬЯ"
-    return const WelcomeScreen();
+    return const RoleSelectionScreen();
   }
 }
