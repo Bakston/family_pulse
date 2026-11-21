@@ -249,8 +249,13 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                               TileLayer(
                                 urlTemplate:
                                     'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                fallbackUrl:
+                                    'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
                                 userAgentPackageName:
                                     'com.example.family_pulse',
+                                errorTileCallback: (tile, error, stackTrace) {
+                                  debugPrint('TILE ERROR: $error');
+                                },
                               ),
 
                               // 1. Круги геозон + круг точности GPS ребёнка

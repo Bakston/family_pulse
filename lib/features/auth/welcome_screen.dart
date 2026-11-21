@@ -1,3 +1,4 @@
+import 'package:flutter/services.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -11,6 +12,10 @@ import '../../features/widgets/family_calendar_widget.dart';
 // Глобальные дизайн-константы в стиле стекломорфизма
 const Color parentGlassPanel = Color(0x33FFFFFF);
 const Color parentTextPrimary = Colors.white;
+
+void _hideAndroidNavigationBar() {
+  SystemChrome.setEnabledSystemUIMode(SystemUiMode.immersiveSticky);
+}
 
 /// Обёртка с фирменным фоном для стартовых экранов
 class AppBackgroundWrapper extends StatelessWidget {
@@ -45,18 +50,44 @@ class AppBackgroundWrapper extends StatelessWidget {
   }
 }
 
-/// Экран выбора режима: экран поделён на 2 части — в центре верхней «РЕБЁНОК», в центре нижней «РОДИТЕЛЬ»
-class RoleSelectionScreen extends StatelessWidget {
+/// Экран выбора режима: отступы по 100px от верхнего и нижнего краёв, в центре — «РЕБЁНОК» и «РОДИТЕЛЬ»
+class RoleSelectionScreen extends StatefulWidget {
   const RoleSelectionScreen({super.key});
+
+  @override
+  State<RoleSelectionScreen> createState() => _RoleSelectionScreenState();
+}
+
+class _RoleSelectionScreenState extends State<RoleSelectionScreen>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _hideAndroidNavigationBar();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _hideAndroidNavigationBar();
+    }
+  }
 
   ButtonStyle _roleButtonStyle() {
     return ElevatedButton.styleFrom(
-      minimumSize: const Size(220, 62),
+      minimumSize: const Size(240, 64),
       padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 16),
       backgroundColor: parentGlassPanel,
       foregroundColor: parentTextPrimary,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(30),
+        borderRadius: BorderRadius.circular(32),
         side: BorderSide(
           color: Colors.white.withValues(alpha: 0.35),
           width: 1.5,
@@ -68,21 +99,14 @@ class RoleSelectionScreen extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AppBackgroundWrapper(
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        automaticallyImplyLeading: false,
-        title: const Text(
-          'FamilyPulse',
-          style: TextStyle(color: parentTextPrimary, fontWeight: FontWeight.bold),
-        ),
-      ),
-      child: Column(
-        children: [
-          // Верхняя половина экрана — по центру кнопка РЕБЁНОК
-          Expanded(
-            child: Center(
-              child: ElevatedButton.icon(
+      child: SizedBox.expand(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 100),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              ElevatedButton.icon(
                 style: _roleButtonStyle(),
                 icon: const Icon(
                   Icons.child_care,
@@ -106,13 +130,7 @@ class RoleSelectionScreen extends StatelessWidget {
                   );
                 },
               ),
-            ),
-          ),
-
-          // Нижняя половина экрана — по центру кнопка РОДИТЕЛЬ
-          Expanded(
-            child: Center(
-              child: ElevatedButton.icon(
+              ElevatedButton.icon(
                 style: _roleButtonStyle(),
                 icon: const Icon(
                   Icons.admin_panel_settings,
@@ -136,9 +154,9 @@ class RoleSelectionScreen extends StatelessWidget {
                   );
                 },
               ),
-            ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }
@@ -157,6 +175,12 @@ class _PasswordLoginScreenState extends State<PasswordLoginScreen> {
   final TextEditingController _loginController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
   bool _isLoading = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hideAndroidNavigationBar();
+  }
 
   @override
   void dispose() {
@@ -352,6 +376,12 @@ class _ParentRegistrationScreenState extends State<ParentRegistrationScreen> {
   String _selectedRole = 'Папа';
   DateTime? _selectedBirthDate;
   bool _isSaving = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _hideAndroidNavigationBar();
+  }
 
   @override
   void dispose() {

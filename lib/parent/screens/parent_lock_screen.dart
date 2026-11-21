@@ -1,5 +1,6 @@
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:material_ui/material_ui.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/services/parent_security_service.dart';
 import '../../features/auth/initial_session_wrapper.dart';
@@ -20,6 +21,7 @@ class ParentLockScreen extends StatefulWidget {
 
 class _ParentLockScreenState extends State<ParentLockScreen> {
   static const Color _graphiteColor = Color(0xFF1E2433);
+  static final Color _circleFillColor = Colors.white.withValues(alpha: 0.5);
 
   String _enteredPin = '';
   String? _errorText;
@@ -106,8 +108,16 @@ class _ParentLockScreenState extends State<ParentLockScreen> {
   }
 
   Future<void> _switchToPasswordLogin() async {
-    await ParentSecurityService.clearPin();
-    await FirebaseAuth.instance.signOut();
+    await ParentSecurityService.clearPin(clearBackup: true);
+    try {
+      await FirebaseAuth.instance.signOut();
+    } catch (_) {}
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('saved_device_uid');
+    await prefs.remove('user_type');
+    await prefs.remove('user_uid');
+
     if (!mounted) return;
     Navigator.of(context).pushAndRemoveUntil(
       MaterialPageRoute(builder: (_) => const InitialSessionWrapper()),
@@ -133,7 +143,7 @@ class _ParentLockScreenState extends State<ParentLockScreen> {
             alignment: Alignment.center,
           ),
           Container(
-            color: Colors.black.withValues(alpha: 0.25),
+            color: Colors.black.withValues(alpha: 0.22),
           ),
           SafeArea(
             child: Column(
@@ -161,13 +171,13 @@ class _ParentLockScreenState extends State<ParentLockScreen> {
                       height: 16,
                       decoration: BoxDecoration(
                         shape: BoxShape.circle,
-                        color: filled ? Colors.white : Colors.white24,
-                        border: Border.all(color: Colors.white, width: 1.4),
+                        color: filled ? Colors.white : _circleFillColor,
+                        border: Border.all(color: Colors.white, width: 1.5),
                         boxShadow: [
                           BoxShadow(
-                            color: Colors.black.withValues(alpha: 0.25),
+                            color: Colors.black.withValues(alpha: 0.28),
                             blurRadius: 6,
-                            offset: const Offset(0, 2),
+                            offset: const Offset(0, 3),
                           ),
                         ],
                       ),
@@ -238,18 +248,18 @@ class _ParentLockScreenState extends State<ParentLockScreen> {
       [showBioButton ? 'BIO' : '', '0', 'DEL'],
     ];
 
-    return ConstrainedBox(
-      constraints: const BoxConstraints(maxWidth: 348),
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 28),
       child: Column(
         children: rows.map((row) {
           return Padding(
-            padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 10),
+            padding: const EdgeInsets.symmetric(vertical: 8),
             child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              mainAxisAlignment: MainAxisAlignment.spaceEvenly,
               children: row.map((key) {
-                if (key.isEmpty) return const SizedBox(width: 86, height: 72);
+                if (key.isEmpty) return const SizedBox(width: 72, height: 72);
                 return InkWell(
-                  borderRadius: BorderRadius.circular(36),
+                  customBorder: const CircleBorder(),
                   onTap: () {
                     if (key == 'DEL') {
                       if (_enteredPin.isNotEmpty) {
@@ -267,21 +277,21 @@ class _ParentLockScreenState extends State<ParentLockScreen> {
                     }
                   },
                   child: Container(
-                    width: 86,
+                    width: 72,
                     height: 72,
                     alignment: Alignment.center,
                     decoration: BoxDecoration(
-                      borderRadius: BorderRadius.circular(36),
-                      color: Colors.white.withValues(alpha: 0.90),
+                      shape: BoxShape.circle,
+                      color: _circleFillColor,
                       border: Border.all(
                         color: Colors.white,
-                        width: 1.6,
+                        width: 1.5,
                       ),
                       boxShadow: [
                         BoxShadow(
-                          color: Colors.black.withValues(alpha: 0.35),
-                          blurRadius: 12,
-                          offset: const Offset(0, 5),
+                          color: Colors.black.withValues(alpha: 0.32),
+                          blurRadius: 10,
+                          offset: const Offset(0, 4),
                         ),
                       ],
                     ),

@@ -77,10 +77,12 @@ class ParentSecurityService {
   static Future<bool> authenticateWithBiometrics() async {
     try {
       final didAuthenticate = await _auth.authenticate(
-        localizedReason: 'Подтвердите личность для входа в панель родителя',
+        localizedReason: '',
         authMessages: const [
           AndroidAuthMessages(
             signInTitle: 'Вход в FamilyPulse',
+            biometricRequiredTitle: '',
+            biometricHint: '',
             cancelButton: 'Отмена',
           ),
         ],

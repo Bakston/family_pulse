@@ -53,6 +53,7 @@ class _ChildLocationHistoryScreenState
   DateTime _selectedDate = DateTime.now();
 
   bool _isLoading = true;
+  bool _isMapReady = false;
   List<_TrackPoint> _cleanPoints = [];
   List<LatLng> _polylinePoints = [];
   double _totalDistanceKm = 0.0;
@@ -63,12 +64,28 @@ class _ChildLocationHistoryScreenState
   @override
   void initState() {
     super.initState();
-    // Даём анимации перехода плавно завершиться перед загрузкой и рендером карты
     Future.delayed(const Duration(milliseconds: 220), () {
       if (!mounted) return;
       _loadDayRoute();
       _cleanupOldHistoryInBackground();
     });
+  }
+
+  void _fitRouteToCamera() {
+    if (!_isMapReady || !mounted || _cleanPoints.isEmpty) return;
+    try {
+      if (_cleanPoints.length == 1) {
+        _mapController.move(_cleanPoints.first.position, 16.0);
+      } else if (_polylinePoints.length >= 2) {
+        final bounds = LatLngBounds.fromPoints(_polylinePoints);
+        _mapController.fitCamera(
+          CameraFit.bounds(
+            bounds: bounds,
+            padding: const EdgeInsets.all(52),
+          ),
+        );
+      }
+    } catch (_) {}
   }
 
   String _formatDateKey(DateTime dt) {
@@ -170,7 +187,6 @@ class _ChildLocationHistoryScreenState
             final acc =
                 double.tryParse(val['accuracy']?.toString() ?? '0') ?? 0.0;
 
-            // Отсекаем грубые точки по вышкам сотовой связи (> 85 м)
             if (lat != null && lng != null && ts > 0 && acc <= 85.0) {
               final rawSpeed =
                   double.tryParse(val['speed']?.toString() ?? '0') ?? 0.0;
@@ -197,13 +213,8 @@ class _ChildLocationHistoryScreenState
         rawPoints.sort((a, b) => a.startTime.compareTo(b.startTime));
       }
 
-      // Шаг 1: Удаляем GPS-«лучи» (прыжки в сторону с быстрым возвратом обратно)
       final noSpikes = _filterGpsSpikes(rawPoints);
-
-      // Шаг 2: Схлопываем стоянки (дубликаты координат < 30 м) в единые интервалы времени
       final mergedStops = _mergeDuplicateStops(noSpikes);
-
-      // Шаг 3: Считаем чистый километраж и прореживаем точки для лёгкой отрисовки Polyline
       final distKm = _calculateTotalDistanceKm(mergedStops);
       final simplifiedPolyline = _downsamplePolyline(mergedStops, maxPoints: 220);
 
@@ -215,24 +226,7 @@ class _ChildLocationHistoryScreenState
         _isLoading = false;
       });
 
-      if (mergedStops.isNotEmpty) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (!mounted) return;
-          try {
-            if (mergedStops.length == 1) {
-              _mapController.move(mergedStops.first.position, 16.0);
-            } else {
-              final bounds = LatLngBounds.fromPoints(simplifiedPolyline);
-              _mapController.fitCamera(
-                CameraFit.bounds(
-                  bounds: bounds,
-                  padding: const EdgeInsets.all(52),
-                ),
-              );
-            }
-          } catch (_) {}
-        });
-      }
+      WidgetsBinding.instance.addPostFrameCallback((_) => _fitRouteToCamera());
     } catch (_) {
       if (mounted) {
         setState(() {
@@ -245,7 +239,6 @@ class _ChildLocationHistoryScreenState
     }
   }
 
-  /// Удаляет выбросы GPS (когда точка B улетает в сторону от A и через 1-3 мин возвращается в C рядом с A)
   List<_TrackPoint> _filterGpsSpikes(List<_TrackPoint> points) {
     if (points.length < 3) return points;
     const distance = Distance();
@@ -270,7 +263,6 @@ class _ChildLocationHistoryScreenState
           dtABSec > 0 && (distAB / dtABSec) > 35.0 && distBC > 100.0;
 
       if (isClassicRay || isTeleport) {
-        // Пропускаем выброс B
         i++;
       } else {
         result.add(b);
@@ -282,7 +274,6 @@ class _ChildLocationHistoryScreenState
     return result;
   }
 
-  /// Объединяет подряд идущие точки в радиусе 30 м (или в одной геозоне) в одну запись с интервалом времени
   List<_TrackPoint> _mergeDuplicateStops(List<_TrackPoint> points) {
     if (points.isEmpty) return [];
     const distance = Distance();
@@ -313,7 +304,6 @@ class _ChildLocationHistoryScreenState
     return merged;
   }
 
-  /// Прореживает точки для Polyline, чтобы карта не тормозила при отрисовке
   List<LatLng> _downsamplePolyline(
     List<_TrackPoint> points, {
     int maxPoints = 220,
@@ -412,7 +402,6 @@ class _ChildLocationHistoryScreenState
       ),
       body: Column(
         children: [
-          // Панель быстрого выбора даты
           Container(
             color: Colors.white,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
@@ -445,13 +434,11 @@ class _ChildLocationHistoryScreenState
             ),
           ),
 
-          // Карта + Нижняя карточка хронологии
           Expanded(
             child: _isLoading
                 ? const Center(child: CircularProgressIndicator())
                 : Column(
                     children: [
-                      // КАРТА С ТРЕКОМ
                       Expanded(
                         flex: 6,
                         child: Stack(
@@ -463,16 +450,24 @@ class _ChildLocationHistoryScreenState
                                     ? _cleanPoints.last.position
                                     : const LatLng(55.751244, 37.618423),
                                 initialZoom: 15.0,
+                                onMapReady: () {
+                                  _isMapReady = true;
+                                  _fitRouteToCamera();
+                                },
                               ),
                               children: [
                                 TileLayer(
                                   urlTemplate:
                                       'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                  fallbackUrl:
+                                      'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
                                   userAgentPackageName:
                                       'com.example.family_pulse',
+                                  errorTileCallback: (tile, error, stackTrace) {
+                                    debugPrint('HISTORY TILE ERROR: $error');
+                                  },
                                 ),
 
-                                // Геозоны на фоне
                                 CircleLayer(
                                   circles: widget.geofences
                                       .map(
@@ -490,7 +485,6 @@ class _ChildLocationHistoryScreenState
                                       .toList(),
                                 ),
 
-                                // Очищенная линия маршрута за день
                                 if (_polylinePoints.length >= 2)
                                   PolylineLayer(
                                     polylines: [
@@ -504,7 +498,6 @@ class _ChildLocationHistoryScreenState
                                     ],
                                   ),
 
-                                // Маркеры: геозоны + старт + финиш + выбранная точка
                                 MarkerLayer(
                                   markers: [
                                     ...widget.geofences.map(
@@ -572,7 +565,6 @@ class _ChildLocationHistoryScreenState
                               ],
                             ),
 
-                            // Бейдж сводки поверх карты
                             if (_cleanPoints.isNotEmpty)
                               Positioned(
                                 top: 12,
@@ -623,7 +615,6 @@ class _ChildLocationHistoryScreenState
                         ),
                       ),
 
-                      // СПИСОК ТОЧЕК МАРШРУТА СНИЗУ
                       Expanded(
                         flex: 4,
                         child: Container(
