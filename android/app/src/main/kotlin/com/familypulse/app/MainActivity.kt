@@ -7,17 +7,36 @@ import android.app.usage.UsageStatsManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
+import android.graphics.Bitmap
+import android.graphics.Canvas
+import android.graphics.Color
+import android.graphics.PixelFormat
+import android.graphics.drawable.BitmapDrawable
+import android.graphics.drawable.ColorDrawable
+import android.graphics.drawable.Drawable
 import android.net.Uri
 import android.net.VpnService
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.PowerManager
 import android.os.Process
 import android.provider.Settings
 import android.text.TextUtils
+import android.view.SurfaceView
+import android.view.View
+import android.view.ViewGroup
+import android.view.WindowManager
 import androidx.core.content.FileProvider
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsControllerCompat
+import io.flutter.embedding.android.FlutterFragment
 import io.flutter.embedding.android.FlutterFragmentActivity
+import io.flutter.embedding.android.TransparencyMode
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
+import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.Calendar
 
@@ -27,35 +46,137 @@ class MainActivity : FlutterFragmentActivity() {
     private val VPN_REQUEST_CODE = 7071
 
     private var pendingVpnResult: MethodChannel.Result? = null
+    private val uiHandler = Handler(Looper.getMainLooper())
+
+    override fun createFlutterFragment(): FlutterFragment {
+        return FlutterFragment.withNewEngine()
+            .transparencyMode(TransparencyMode.transparent)
+            .build()
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        handleBackgroundBootIfNeeded(intent)
+        if (shouldUseWallpaperBackground()) {
+            applyWallpaperWindowStyle()
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        if (shouldUseWallpaperBackground()) {
+            applyWallpaperWindowStyle()
+        }
     }
 
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
-        handleBackgroundBootIfNeeded(intent)
+        if (shouldUseWallpaperBackground()) {
+            applyWallpaperWindowStyle()
+        }
     }
 
-    private fun handleBackgroundBootIfNeeded(intent: Intent?) {
-        if (intent?.getBooleanExtra("background_boot", false) == true) {
-            intent.removeExtra("background_boot")
-            if (!isDefaultLauncher()) {
-                window?.decorView?.postDelayed({
-                    try {
-                        moveTaskToBack(true)
-                    } catch (_: Exception) {}
-                }, 1200L)
+    override fun onDestroy() {
+        uiHandler.removeCallbacksAndMessages(null)
+        super.onDestroy()
+    }
+
+    private fun shouldUseWallpaperBackground(): Boolean {
+        if (isDefaultLauncher()) return true
+        val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
+        val nativePrefs = getSharedPreferences("family_pulse_native", Context.MODE_PRIVATE)
+        val userType = flutterPrefs.getString("flutter.user_type", "") ?: ""
+        val childMode = nativePrefs.getString("child_mode", "launcher") ?: "launcher"
+        return userType == "child" && childMode == "launcher"
+    }
+
+    private fun applyWallpaperWindowStyle() {
+        try {
+            window.addFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+            window.setFormat(PixelFormat.TRANSLUCENT)
+            window.setBackgroundDrawable(ColorDrawable(Color.TRANSPARENT))
+            window.decorView.setBackgroundColor(Color.TRANSPARENT)
+
+            WindowCompat.setDecorFitsSystemWindows(window, false)
+            window.statusBarColor = Color.TRANSPARENT
+            window.navigationBarColor = Color.TRANSPARENT
+
+            val controller = WindowInsetsControllerCompat(window, window.decorView)
+            controller.isAppearanceLightStatusBars = false
+            controller.isAppearanceLightNavigationBars = false
+            @Suppress("DEPRECATION")
+            window.decorView.systemUiVisibility = (
+                View.SYSTEM_UI_FLAG_LAYOUT_STABLE or
+                    View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
+                    View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION
+                )
+
+            makeSurfaceViewsTransparent(window.decorView)
+            window.decorView.post {
+                makeSurfaceViewsTransparent(window.decorView)
             }
+            uiHandler.postDelayed({
+                if (!isFinishing && shouldUseWallpaperBackground()) {
+                    makeSurfaceViewsTransparent(window.decorView)
+                }
+            }, 250L)
+        } catch (_: Exception) {}
+    }
+
+    private fun makeSurfaceViewsTransparent(view: View) {
+        if (view is SurfaceView) {
+            view.setZOrderOnTop(false)
+            view.setZOrderMediaOverlay(false)
+            view.holder.setFormat(PixelFormat.TRANSLUCENT)
+        }
+        if (view is ViewGroup) {
+            for (i in 0 until view.childCount) {
+                makeSurfaceViewsTransparent(view.getChildAt(i))
+            }
+        }
+    }
+
+    private fun drawableToPngBytes(drawable: Drawable): ByteArray? {
+        return try {
+            val width = if (drawable.intrinsicWidth > 0) drawable.intrinsicWidth else 128
+            val height = if (drawable.intrinsicHeight > 0) drawable.intrinsicHeight else 128
+            val bitmap = if (drawable is BitmapDrawable && drawable.bitmap != null) {
+                drawable.bitmap
+            } else {
+                Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888).also { bmp ->
+                    val canvas = Canvas(bmp)
+                    drawable.setBounds(0, 0, canvas.width, canvas.height)
+                    drawable.draw(canvas)
+                }
+            }
+            val stream = ByteArrayOutputStream()
+            bitmap.compress(Bitmap.CompressFormat.PNG, 100, stream)
+            stream.toByteArray()
+        } catch (_: Exception) {
+            null
+        }
+    }
+
+    private fun resolveDialerIconBytes(): ByteArray? {
+        return try {
+            val dialIntent = Intent(Intent.ACTION_DIAL).apply {
+                data = Uri.parse("tel:")
+            }
+            val resolveInfo = packageManager.resolveActivity(dialIntent, 0)
+            val iconDrawable = resolveInfo?.loadIcon(packageManager)
+                ?: resolveInfo?.activityInfo?.loadIcon(packageManager)
+            if (iconDrawable != null) drawableToPngBytes(iconDrawable) else null
+        } catch (_: Exception) {
+            null
         }
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
+        if (shouldUseWallpaperBackground()) {
+            applyWallpaperWindowStyle()
+        }
 
-        // При холодном запуске сбрасываем временные обходы
         getSharedPreferences("family_pulse_native", Context.MODE_PRIVATE)
             .edit()
             .putLong("parent_bypass_until", 0L)
@@ -95,16 +216,31 @@ class MainActivity : FlutterFragmentActivity() {
 
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, ADMIN_CHANNEL).setMethodCallHandler { call, result ->
             when (call.method) {
+                "getDialerIcon" -> {
+                    result.success(resolveDialerIconBytes())
+                }
+
                 "setChildMode" -> {
                     val mode = call.argument<String>("mode") ?: "launcher"
                     val prefs = getSharedPreferences("family_pulse_native", Context.MODE_PRIVATE)
                     prefs.edit().putString("child_mode", mode).apply()
+                    if (shouldUseWallpaperBackground()) {
+                        applyWallpaperWindowStyle()
+                    }
                     result.success(true)
                 }
 
                 "getChildMode" -> {
                     val prefs = getSharedPreferences("family_pulse_native", Context.MODE_PRIVATE)
                     result.success(prefs.getString("child_mode", "launcher") ?: "launcher")
+                }
+
+                "setWallpaperMode" -> {
+                    val enabled = call.argument<Boolean>("enabled") ?: true
+                    if (enabled) {
+                        applyWallpaperWindowStyle()
+                    }
+                    result.success(true)
                 }
 
                 "consumePendingUnlockRequest" -> {
@@ -174,10 +310,61 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success(true)
                 }
 
+                "checkBatteryOptimizationExempt" -> {
+                    val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                    val exempt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        pm.isIgnoringBatteryOptimizations(packageName)
+                    } else {
+                        true
+                    }
+                    result.success(exempt)
+                }
+
+                "requestBatteryOptimizationExempt" -> {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+                        if (pm.isIgnoringBatteryOptimizations(packageName)) {
+                            result.success(true)
+                            return@setMethodCallHandler
+                        }
+                        try {
+                            val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply {
+                                data = Uri.parse("package:$packageName")
+                            }
+                            startActivity(intent)
+                            result.success(true)
+                        } catch (_: Exception) {
+                            try {
+                                startActivity(Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS))
+                                result.success(true)
+                            } catch (_: Exception) {
+                                openAppDetailsFallback()
+                                result.success(false)
+                            }
+                        }
+                    } else {
+                        result.success(true)
+                    }
+                }
+
                 "openPhoneDialer" -> {
                     try {
                         val intent = Intent(Intent.ACTION_DIAL).apply {
                             data = Uri.parse("tel:")
+                            flags = Intent.FLAG_ACTIVITY_NEW_TASK
+                        }
+                        startActivity(intent)
+                        result.success(true)
+                    } catch (e: Exception) {
+                        result.success(false)
+                    }
+                }
+
+                "openAppInfo" -> {
+                    val targetPkg = call.argument<String>("packageName") ?: packageName
+                    try {
+                        val intent = Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                            data = Uri.parse("package:$targetPkg")
                             flags = Intent.FLAG_ACTIVITY_NEW_TASK
                         }
                         startActivity(intent)
@@ -246,7 +433,6 @@ class MainActivity : FlutterFragmentActivity() {
                             return@setMethodCallHandler
                         }
 
-                        // Даём карт-бланш на установку нашего обновления на 3 минуты на обеих ролях
                         val until = System.currentTimeMillis() + 3 * 60_000L
                         getSharedPreferences("family_pulse_native", Context.MODE_PRIVATE)
                             .edit()
@@ -280,7 +466,6 @@ class MainActivity : FlutterFragmentActivity() {
                             putExtra(Intent.EXTRA_NOT_UNKNOWN_SOURCE, true)
                         }
 
-                        // Направляем напрямую в системный PackageInstaller, минуя Huawei AppGallery
                         val systemInstaller = listOf(
                             "com.google.android.packageinstaller",
                             "com.android.packageinstaller"
@@ -310,7 +495,6 @@ class MainActivity : FlutterFragmentActivity() {
                     result.success(true)
                 }
 
-                // --- МЕТОДЫ ВЕБ-ФИЛЬТРАЦИИ (VPN) ---
                 "checkVpnPermission" -> {
                     val prepareIntent = VpnService.prepare(this)
                     result.success(prepareIntent == null)

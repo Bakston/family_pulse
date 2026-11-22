@@ -1,11 +1,12 @@
 import 'dart:async';
+
+import 'package:battery_plus/battery_plus.dart';
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:geolocator/geolocator.dart';
-import 'package:firebase_database/firebase_database.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'package:battery_plus/battery_plus.dart';
 
 import 'app_control_service.dart';
 import 'daily_tasks_service.dart';
@@ -25,6 +26,24 @@ class _CachedGeofence {
     required this.latitude,
     required this.longitude,
     required this.radius,
+  });
+}
+
+class _ZoneAnchor {
+  final String zoneId;
+  final String title;
+  final double latitude;
+  final double longitude;
+  final double radius;
+  final int enteredAtMs;
+
+  const _ZoneAnchor({
+    required this.zoneId,
+    required this.title,
+    required this.latitude,
+    required this.longitude,
+    required this.radius,
+    required this.enteredAtMs,
   });
 }
 
@@ -52,15 +71,16 @@ class LocationService {
   static StreamSubscription<Position>? _positionSubscription;
   static StreamSubscription<DatabaseEvent>? _geofencesSubscription;
   static StreamSubscription<DatabaseEvent>? _childRulesSubscription;
-  static Timer? _realtimeProtectionTimer;
-  static Timer? _heartbeatTimer;
-  static Timer? _selfDiagnosticsTimer;
 
+  static String? _activeChildId;
   static bool _isTracking = false;
   static bool _isSendingImmediate = false;
   static int _lastHandledForceLocationAt = 0;
-  static Map<dynamic, dynamic> _latestChildData = {};
+  static int _lastOutsideTelemetrySentMs = 0;
+  static int _lastLowBatteryAlertMs = 0;
   static final Battery _battery = Battery();
+
+  static _ZoneAnchor? _zoneAnchor;
 
   /// Последняя подтверждённая (записанная в БД) точка маршрута (точка A)
   static _HistoryCandidate? _committedHistoryPoint;
@@ -74,8 +94,133 @@ class LocationService {
   static final Map<String, bool> _insideGeofenceState = {};
   static String? _lockedGeofenceId;
   static const double _exitHysteresisMeters = 15.0;
+  static const Duration _outsideTelemetryInterval = Duration(seconds: 60);
+  static const Duration _lowBatteryCooldown = Duration(minutes: 30);
 
   static bool get isTracking => _isTracking;
+
+  static Future<void> _resetChildStateForSwitch(String newChildId) async {
+    await _childRulesSubscription?.cancel();
+    _childRulesSubscription = null;
+
+    await _geofencesSubscription?.cancel();
+    _geofencesSubscription = null;
+    _geofencesLoaded = false;
+    _geofencesCache = [];
+
+    if (_activeChildId != null && _activeChildId != newChildId) {
+      await _positionSubscription?.cancel();
+      _positionSubscription = null;
+      _isTracking = false;
+      _zoneAnchor = null;
+      _lockedGeofenceId = null;
+      _insideGeofenceState.clear();
+      _committedHistoryPoint = null;
+      _pendingHistoryPoint = null;
+      _lastOutsideTelemetrySentMs = 0;
+    }
+
+    _activeChildId = newChildId;
+  }
+
+  static Future<void> _saveZoneAnchor(String childId, _ZoneAnchor anchor) async {
+    _zoneAnchor = anchor;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString('zone_anchor_child_id_$childId', anchor.zoneId);
+    await prefs.setString('zone_anchor_title_$childId', anchor.title);
+    await prefs.setDouble('zone_anchor_lat_$childId', anchor.latitude);
+    await prefs.setDouble('zone_anchor_lng_$childId', anchor.longitude);
+    await prefs.setDouble('zone_anchor_radius_$childId', anchor.radius);
+    await prefs.setInt('zone_anchor_entered_$childId', anchor.enteredAtMs);
+
+    try {
+      await FirebaseDatabase.instance
+          .ref('children/$childId/activeZoneAnchor')
+          .set({
+        'zoneId': anchor.zoneId,
+        'title': anchor.title,
+        'latitude': anchor.latitude,
+        'longitude': anchor.longitude,
+        'radius': anchor.radius,
+        'enteredAt': anchor.enteredAtMs,
+      });
+    } catch (_) {}
+  }
+
+  static Future<void> _clearZoneAnchor(String childId) async {
+    _zoneAnchor = null;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.remove('zone_anchor_child_id_$childId');
+    await prefs.remove('zone_anchor_title_$childId');
+    await prefs.remove('zone_anchor_lat_$childId');
+    await prefs.remove('zone_anchor_lng_$childId');
+    await prefs.remove('zone_anchor_radius_$childId');
+    await prefs.remove('zone_anchor_entered_$childId');
+
+    try {
+      await FirebaseDatabase.instance
+          .ref('children/$childId/activeZoneAnchor')
+          .remove();
+    } catch (_) {}
+  }
+
+  static Future<void> _restoreZoneAnchor(String childId) async {
+    if (_zoneAnchor != null && _activeChildId == childId) return;
+    final prefs = await SharedPreferences.getInstance();
+    final zoneId = prefs.getString('zone_anchor_child_id_$childId');
+    final lat = prefs.getDouble('zone_anchor_lat_$childId');
+    final lng = prefs.getDouble('zone_anchor_lng_$childId');
+    if (zoneId != null && zoneId.isNotEmpty && lat != null && lng != null) {
+      _zoneAnchor = _ZoneAnchor(
+        zoneId: zoneId,
+        title: prefs.getString('zone_anchor_title_$childId') ?? 'Точка',
+        latitude: lat,
+        longitude: lng,
+        radius: prefs.getDouble('zone_anchor_radius_$childId') ?? 150.0,
+        enteredAtMs: prefs.getInt('zone_anchor_entered_$childId') ??
+            DateTime.now().millisecondsSinceEpoch,
+      );
+      _lockedGeofenceId = zoneId;
+    }
+  }
+
+  static Future<bool> ensureBatteryOptimizationDisabled() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return true;
+
+    try {
+      final bool? nativeExempt = await AppControlService.adminChannel
+          .invokeMethod<bool>('checkBatteryOptimizationExempt');
+      if (nativeExempt == true) return true;
+    } catch (_) {}
+
+    final status = await Permission.ignoreBatteryOptimizations.status;
+    if (status.isGranted) return true;
+
+    try {
+      await AppControlService.adminChannel.invokeMethod(
+        'requestBatteryOptimizationExempt',
+      );
+    } catch (_) {
+      await Permission.ignoreBatteryOptimizations.request();
+    }
+
+    try {
+      final bool? afterNative = await AppControlService.adminChannel
+          .invokeMethod<bool>('checkBatteryOptimizationExempt');
+      if (afterNative == true) return true;
+    } catch (_) {}
+
+    final afterStatus = await Permission.ignoreBatteryOptimizations.status;
+    return afterStatus.isGranted;
+  }
+
+  static Future<void> _ensureNotificationPermissionOnAndroid() async {
+    if (defaultTargetPlatform != TargetPlatform.android) return;
+    final status = await Permission.notification.status;
+    if (!status.isGranted) {
+      await Permission.notification.request();
+    }
+  }
 
   static Future<bool> checkAndRequestPermissions() async {
     bool serviceEnabled = await Geolocator.isLocationServiceEnabled();
@@ -84,6 +229,8 @@ class LocationService {
       serviceEnabled = await Geolocator.isLocationServiceEnabled();
       if (!serviceEnabled) return false;
     }
+
+    await _ensureNotificationPermissionOnAndroid();
 
     LocationPermission permission = await Geolocator.checkPermission();
     if (permission == LocationPermission.denied) {
@@ -98,11 +245,108 @@ class LocationService {
       return false;
     }
 
+    if (defaultTargetPlatform == TargetPlatform.android &&
+        permission != LocationPermission.always) {
+      await Geolocator.openAppSettings();
+      permission = await Geolocator.checkPermission();
+      if (permission != LocationPermission.always) {
+        return false;
+      }
+    }
+
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      await ensureBatteryOptimizationDisabled();
+    }
+
     return true;
+  }
+
+  static LocationSettings _buildLocationSettings() {
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return AndroidSettings(
+        accuracy: LocationAccuracy.high,
+        distanceFilter: 20,
+        intervalDuration: const Duration(seconds: 30),
+        foregroundNotificationConfig: const ForegroundNotificationConfig(
+          notificationTitle: 'FamilyPulse',
+          notificationText: 'Геолокация и геозоны активны',
+          enableWakeLock: false,
+        ),
+      );
+    }
+    return const LocationSettings(
+      accuracy: LocationAccuracy.high,
+      distanceFilter: 20,
+    );
+  }
+
+  static Future<void> _subscribePositionStream(String childId) async {
+    await _positionSubscription?.cancel();
+    _positionSubscription = Geolocator.getPositionStream(
+      locationSettings: _buildLocationSettings(),
+    ).listen(
+      (Position position) {
+        _sendDataToFirebase(childId, position);
+      },
+      onError: (error) {
+        debugPrint('[LocationService] Ошибка потока геолокации: $error');
+        _isTracking = false;
+      },
+      onDone: () {
+        debugPrint('[LocationService] Поток геолокации завершён');
+        _isTracking = false;
+      },
+    );
+    _isTracking = true;
+  }
+
+  static Future<void> _checkAndNotifyLowBattery(
+    String childId,
+    int batteryLevel,
+    bool isCharging,
+  ) async {
+    if (isCharging || batteryLevel > 15) return;
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if ((nowMs - _lastLowBatteryAlertMs) < _lowBatteryCooldown.inMilliseconds) {
+      return;
+    }
+    _lastLowBatteryAlertMs = nowMs;
+
+    try {
+      final childSnap =
+          await FirebaseDatabase.instance.ref('children/$childId').get();
+      if (!childSnap.exists || childSnap.value is! Map) return;
+      final childData = Map<dynamic, dynamic>.from(childSnap.value as Map);
+      final childName = childData['name']?.toString() ?? 'Ребёнок';
+      final parentUid = childData['parentUid']?.toString() ?? '';
+      if (parentUid.isEmpty) return;
+
+      final chatId = await FamilyChatService.resolveChatIdForChild(parentUid);
+      if (chatId.isEmpty) return;
+
+      final memberIds = await FamilyChatService.resolveAllFamilyMemberIds(
+        primaryParentUid: parentUid,
+      );
+
+      await FamilyChatService.sendSystemEvent(
+        chatId: chatId,
+        text: '🔋 На устройстве «$childName» низкий заряд батареи: $batteryLevel%',
+        notifyMemberIds: memberIds,
+        excludeMemberId: childId,
+      );
+    } catch (_) {}
   }
 
   static Future<void> ensureRealtimeProtectionSubscribed(String childId) async {
     if (childId.isEmpty) return;
+    final bool childChanged =
+        _activeChildId != null && _activeChildId != childId;
+    if (childChanged) {
+      await _resetChildStateForSwitch(childId);
+    } else {
+      _activeChildId = childId;
+    }
+    await _restoreZoneAnchor(childId);
 
     final prefs = await SharedPreferences.getInstance();
     _lastHandledForceLocationAt =
@@ -137,37 +381,6 @@ class LocationService {
         },
       );
     }
-
-    _realtimeProtectionTimer ??= Timer.periodic(
-      const Duration(seconds: 30),
-      (_) async {
-        await AppControlService.syncInstalledApps();
-        if (_latestChildData.isNotEmpty) {
-          final blocked =
-              AppControlService.evaluateBlockedPackages(_latestChildData);
-          await AppControlService.updateNativeBlockedPackages(blocked);
-        }
-      },
-    );
-
-    _heartbeatTimer ??= Timer.periodic(
-      const Duration(seconds: 45),
-      (_) async {
-        try {
-          await db.ref('children/$childId/lastSeen').set(ServerValue.timestamp);
-        } catch (_) {}
-      },
-    );
-
-    if (_selfDiagnosticsTimer == null) {
-      Future.delayed(const Duration(seconds: 20), () {
-        runChildSelfDiagnostics(childId);
-      });
-      _selfDiagnosticsTimer = Timer.periodic(
-        const Duration(minutes: 10),
-        (_) => runChildSelfDiagnostics(childId),
-      );
-    }
   }
 
   static Future<void> runChildSelfDiagnostics(String childId) async {
@@ -175,8 +388,9 @@ class LocationService {
     try {
       final prefs = await SharedPreferences.getInstance();
       final channel = AppControlService.adminChannel;
-      const usageChannel =
-          MethodChannel('com.example.family_pulse/usage_stats');
+      const usageChannel = MethodChannel(
+        'com.example.family_pulse/usage_stats',
+      );
 
       final bool isAccessibilityOk =
           await channel.invokeMethod<bool>('checkAccessibility') ?? false;
@@ -224,7 +438,7 @@ class LocationService {
           ok: isLocationAlwaysOk,
           failMsg:
               'геолокация не в режиме «Разрешить в любом режиме» — возможны обрывы в фоне',
-          okMsg: 'фоновый доступ к геолокации восстановлен',
+          okMsg: 'доступ к геолокации восстановлен',
         ),
         'notifications': (
           ok: isNotifOk,
@@ -282,8 +496,6 @@ class LocationService {
     String childId,
     Map<dynamic, dynamic> childData,
   ) async {
-    _latestChildData = childData;
-
     final blockedList = AppControlService.evaluateBlockedPackages(childData);
     await AppControlService.updateNativeBlockedPackages(blockedList);
 
@@ -303,7 +515,11 @@ class LocationService {
   }
 
   static Future<void> _ensureGeofencesSubscribed(String childId) async {
-    if (_geofencesSubscription != null && _geofencesLoaded) return;
+    if (_geofencesSubscription != null &&
+        _geofencesLoaded &&
+        _activeChildId == childId) {
+      return;
+    }
 
     await _geofencesSubscription?.cancel();
     _geofencesLoaded = false;
@@ -365,6 +581,7 @@ class LocationService {
     if (_lockedGeofenceId != null &&
         !activeZoneIds.contains(_lockedGeofenceId)) {
       _lockedGeofenceId = null;
+      _zoneAnchor = null;
     }
   }
 
@@ -374,6 +591,9 @@ class LocationService {
 
     try {
       String? targetChildId = childId;
+      if (targetChildId == null || targetChildId.isEmpty) {
+        targetChildId = _activeChildId;
+      }
       if (targetChildId == null || targetChildId.isEmpty) {
         final prefs = await SharedPreferences.getInstance();
         targetChildId = prefs.getString('saved_child_id');
@@ -421,6 +641,9 @@ class LocationService {
   static Future<bool> startChildLocationTracking({String? childId}) async {
     String? targetChildId = childId;
     if (targetChildId == null || targetChildId.isEmpty) {
+      targetChildId = _activeChildId;
+    }
+    if (targetChildId == null || targetChildId.isEmpty) {
       final prefs = await SharedPreferences.getInstance();
       targetChildId = prefs.getString('saved_child_id');
     }
@@ -429,16 +652,25 @@ class LocationService {
       return false;
     }
 
-    await ensureRealtimeProtectionSubscribed(targetChildId);
-    unawaited(AppControlService.syncInstalledApps());
-    unawaited(DailyTasksService.processDailyTasks(targetChildId));
-
-    if (_isTracking) return true;
+    final bool childChanged =
+        _activeChildId != null && _activeChildId != targetChildId;
+    if (childChanged) {
+      await _resetChildStateForSwitch(targetChildId);
+    } else {
+      _activeChildId = targetChildId;
+    }
 
     final hasPermission = await checkAndRequestPermissions();
     if (!hasPermission) {
       return false;
     }
+
+    await _restoreZoneAnchor(targetChildId);
+    await ensureRealtimeProtectionSubscribed(targetChildId);
+    unawaited(AppControlService.syncInstalledApps());
+    unawaited(DailyTasksService.processDailyTasks(targetChildId));
+
+    if (_isTracking && _positionSubscription != null) return true;
 
     await _ensureGeofencesSubscribed(targetChildId);
 
@@ -458,40 +690,7 @@ class LocationService {
       debugPrint('[LocationService] Ошибка получения стартовой позиции: $e');
     }
 
-    late LocationSettings locationSettings;
-
-    if (defaultTargetPlatform == TargetPlatform.android) {
-      locationSettings = AndroidSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 20,
-        intervalDuration: const Duration(seconds: 30),
-        foregroundNotificationConfig: const ForegroundNotificationConfig(
-          notificationTitle: 'FamilyPulse активен',
-          notificationText:
-              'Защита устройства и контроль правил в реальном времени',
-          enableWakeLock: true,
-        ),
-      );
-    } else {
-      locationSettings = const LocationSettings(
-        accuracy: LocationAccuracy.high,
-        distanceFilter: 20,
-      );
-    }
-
-    await _positionSubscription?.cancel();
-    _positionSubscription = Geolocator.getPositionStream(
-      locationSettings: locationSettings,
-    ).listen(
-      (Position position) {
-        _sendDataToFirebase(targetChildId!, position);
-      },
-      onError: (error) {
-        debugPrint('[LocationService] Ошибка потока геолокации: $error');
-      },
-    );
-
-    _isTracking = true;
+    await _subscribePositionStream(targetChildId);
     return true;
   }
 
@@ -604,7 +803,7 @@ class LocationService {
     return false;
   }
 
-  /// Запись текущих координат и фильтрация дубликатов/выбросов маршрута
+  /// Запись координат, якоря геозоны и фильтрация дубликатов/выбросов маршрута
   static Future<void> _sendDataToFirebase(
     String childId,
     Position position, {
@@ -612,7 +811,8 @@ class LocationService {
     bool forceWrite = false,
   }) async {
     try {
-      // Отбрасываем заведомо грубые вышки сотовой связи (accuracy > 75 м), чтобы не плодить «лучи»
+      await _restoreZoneAnchor(childId);
+
       if (!forceWrite && position.accuracy > 75.0) {
         return;
       }
@@ -623,9 +823,15 @@ class LocationService {
         position.accuracy,
       );
 
+      final bool wasInZone = _zoneAnchor != null || _lockedGeofenceId != null;
+      final bool isEnteringZone =
+          activeZone != null && _zoneAnchor?.zoneId != activeZone.id;
+      final bool isExitingZone = wasInZone && activeZone == null;
+
       if (!forceWrite &&
           activeZone != null &&
-          _lockedGeofenceId == activeZone.id) {
+          !isEnteringZone &&
+          _zoneAnchor?.zoneId == activeZone.id) {
         return;
       }
 
@@ -633,15 +839,44 @@ class LocationService {
         await _checkGeofencesAndNotify(childId, position);
       }
 
+      final int nowMs = DateTime.now().millisecondsSinceEpoch;
+
+      // Вне геозоны соблюдаем периодичность отправки координат в БД
+      if (!forceWrite &&
+          !isEnteringZone &&
+          !isExitingZone &&
+          activeZone == null &&
+          _lastOutsideTelemetrySentMs > 0 &&
+          (nowMs - _lastOutsideTelemetrySentMs) <
+              _outsideTelemetryInterval.inMilliseconds) {
+        return;
+      }
+
       final double outLat =
           activeZone != null ? activeZone.latitude : position.latitude;
       final double outLng =
           activeZone != null ? activeZone.longitude : position.longitude;
       final double outSpeed = activeZone != null ? 0.0 : position.speed;
-      final bool isEnteringZone =
-          activeZone != null && _lockedGeofenceId != activeZone.id;
 
-      _lockedGeofenceId = activeZone?.id;
+      if (activeZone != null) {
+        _lockedGeofenceId = activeZone.id;
+        await _saveZoneAnchor(
+          childId,
+          _ZoneAnchor(
+            zoneId: activeZone.id,
+            title: activeZone.title,
+            latitude: activeZone.latitude,
+            longitude: activeZone.longitude,
+            radius: activeZone.radius,
+            enteredAtMs: _zoneAnchor?.zoneId == activeZone.id
+                ? _zoneAnchor!.enteredAtMs
+                : nowMs,
+          ),
+        );
+      } else if (isExitingZone) {
+        _lockedGeofenceId = null;
+        await _clearZoneAnchor(childId);
+      }
 
       int batteryLevel = 100;
       bool isCharging = false;
@@ -652,6 +887,8 @@ class LocationService {
         isCharging = batteryState == BatteryState.charging ||
             batteryState == BatteryState.full;
       } catch (_) {}
+
+      await _checkAndNotifyLowBattery(childId, batteryLevel, isCharging);
 
       final db = FirebaseDatabase.instance;
       await db.ref('children/$childId/location').update({
@@ -665,8 +902,8 @@ class LocationService {
         'activeGeofenceTitle': activeZone?.title,
         'timestamp': ServerValue.timestamp,
       });
+      _lastOutsideTelemetrySentMs = nowMs;
 
-      final int nowMs = DateTime.now().millisecondsSinceEpoch;
       final candidate = _HistoryCandidate(
         latitude: outLat,
         longitude: outLng,
@@ -677,10 +914,12 @@ class LocationService {
         timestampMs: nowMs,
       );
 
-      // Анти-дубликат стоянок: если ребёнок стоит на месте (< 30 м от последней точки) — не дублируем!
       final _HistoryCandidate? referencePoint =
           _pendingHistoryPoint ?? _committedHistoryPoint;
-      if (!forceHistory && !isEnteringZone && referencePoint != null) {
+      if (!forceHistory &&
+          !isEnteringZone &&
+          !isExitingZone &&
+          referencePoint != null) {
         final double movedMeters = Geolocator.distanceBetween(
           referencePoint.latitude,
           referencePoint.longitude,
@@ -692,8 +931,10 @@ class LocationService {
         }
       }
 
-      // Если это самая первая точка или принудительный/геозонный переход — фиксируем сразу
-      if (_committedHistoryPoint == null || forceHistory || isEnteringZone) {
+      if (_committedHistoryPoint == null ||
+          forceHistory ||
+          isEnteringZone ||
+          isExitingZone) {
         if (_pendingHistoryPoint != null && _committedHistoryPoint != null) {
           if (!_isGpsSpike(
             a: _committedHistoryPoint!,
@@ -708,7 +949,6 @@ class LocationService {
         return;
       }
 
-      // Буфер на 1 шаг для отлова GPS-лучей (A -> B -> C)
       if (_pendingHistoryPoint == null) {
         _pendingHistoryPoint = candidate;
       } else {
@@ -719,8 +959,9 @@ class LocationService {
         );
 
         if (spike) {
-          debugPrint('[LocationService] Отфильтрован GPS-выброс (луч) в маршруте');
-          // Точку B выкидываем; если C ушла от A >= 30 м, она становится новым кандидатом B
+          debugPrint(
+            '[LocationService] Отфильтрован GPS-выброс (луч) в маршруте',
+          );
           final double distFromA = Geolocator.distanceBetween(
             _committedHistoryPoint!.latitude,
             _committedHistoryPoint!.longitude,
@@ -729,7 +970,6 @@ class LocationService {
           );
           _pendingHistoryPoint = distFromA >= 30.0 ? candidate : null;
         } else {
-          // Точка B подтверждена — записываем её в историю, а C ставим в ожидание
           await _writeHistoryCandidate(childId, _pendingHistoryPoint!);
           _pendingHistoryPoint = candidate;
         }
@@ -809,21 +1049,16 @@ class LocationService {
   }
 
   static Future<void> stopTracking() async {
-    _realtimeProtectionTimer?.cancel();
-    _realtimeProtectionTimer = null;
-    _heartbeatTimer?.cancel();
-    _heartbeatTimer = null;
-    _selfDiagnosticsTimer?.cancel();
-    _selfDiagnosticsTimer = null;
-
     await _childRulesSubscription?.cancel();
     _childRulesSubscription = null;
-    _latestChildData = {};
 
     await _positionSubscription?.cancel();
     await _geofencesSubscription?.cancel();
     _positionSubscription = null;
     _geofencesSubscription = null;
+    _activeChildId = null;
+    _zoneAnchor = null;
+    _lastOutsideTelemetrySentMs = 0;
     _isTracking = false;
     _geofencesLoaded = false;
     _geofencesCache = [];

@@ -59,12 +59,19 @@ class _ChildPermissionsScreenState extends State<ChildPermissionsScreen>
     final locAlways = await Permission.locationAlways.isGranted;
     final notifications = await Permission.notification.isGranted;
     final overlay = await Permission.systemAlertWindow.isGranted;
-    final battery = await Permission.ignoreBatteryOptimizations.isGranted;
     final vpn = await WebFilterService.checkVpnPermission();
 
+    bool battery = await Permission.ignoreBatteryOptimizations.isGranted;
     bool usage = false;
     bool admin = false;
     bool access = false;
+
+    try {
+      battery = await _adminChannel.invokeMethod<bool>(
+            'checkBatteryOptimizationExempt',
+          ) ??
+          battery;
+    } catch (_) {}
 
     try {
       usage =
@@ -126,9 +133,13 @@ class _ChildPermissionsScreenState extends State<ChildPermissionsScreen>
 
   Future<void> _requestBattery() async {
     try {
-      await Permission.ignoreBatteryOptimizations.request();
+      await _adminChannel.invokeMethod('requestBatteryOptimizationExempt');
     } catch (_) {
-      await openAppSettings();
+      try {
+        await Permission.ignoreBatteryOptimizations.request();
+      } catch (_) {
+        await openAppSettings();
+      }
     }
     _checkAllPermissions();
   }

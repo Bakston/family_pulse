@@ -29,7 +29,7 @@ class GithubUpdateService {
   static BuildContext? _latestContext;
   static bool _isInstallSheetOpen = false;
 
-  /// Возвращает путь в каталоге updates (<external-files-path name="updates" path="updates/" />).
+  /// Возвращает путь в каталоге updates external-files-path name="updates" path="updates/".
   static Future<File> _getTargetApkFile() async {
     String? baseDirPath;
     try {
@@ -55,6 +55,17 @@ class GithubUpdateService {
     return '${mb.toStringAsFixed(1)} МБ';
   }
 
+  static String _formatHttpErrorMessage(int statusCode, String body) {
+    if (statusCode == 403) {
+      final lower = body.toLowerCase();
+      if (lower.contains('rate limit')) {
+        return 'Превышен лимит запросов к GitHub API (60/час). Попробуйте позже или установите APK вручную.';
+      }
+      return 'GitHub отклонил запрос (HTTP 403). Проверьте сеть/ограничения доступа или установите APK вручную.';
+    }
+    return 'Не удалось проверить обновление (HTTP $statusCode)';
+  }
+
   /// Проверка обновлений с GitHub Releases (работает и у родителя, и у ребёнка).
   static Future<void> checkForUpdates(
     BuildContext context, {
@@ -62,13 +73,16 @@ class GithubUpdateService {
   }) async {
     _latestContext = context;
 
+    final packageInfo = await PackageInfo.fromPlatform();
+    final String currentVer = packageInfo.version;
+
     final url = Uri.parse(
       'https://api.github.com/repos/$owner/$repo/releases/latest',
     );
 
     final headers = <String, String>{
       'Accept': 'application/vnd.github+json',
-      'User-Agent': 'FamilyPulse',
+      'User-Agent': 'FamilyPulse/$currentVer',
       if (githubToken.isNotEmpty) 'Authorization': 'Bearer $githubToken',
     };
 
@@ -93,9 +107,6 @@ class GithubUpdateService {
             break;
           }
         }
-
-        final packageInfo = await PackageInfo.fromPlatform();
-        final String currentVer = packageInfo.version;
 
         final String cleanLatest = latestTag
             .replaceAll(RegExp(r'[^0-9.]'), '')
@@ -171,19 +182,24 @@ class GithubUpdateService {
           }
         }
       } else {
-        if (!silent && context.mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
+        if (response.statusCode == 403) {
+          debugPrint('GithubUpdateService: HTTP 403 -> ${response.body}');
+        }
+        final targetContext = context.mounted ? context : _latestContext;
+        if (!silent && targetContext != null && targetContext.mounted) {
+          ScaffoldMessenger.of(targetContext).showSnackBar(
             SnackBar(
               content: Text(
-                'Не удалось проверить обновление (HTTP ${response.statusCode})',
+                _formatHttpErrorMessage(response.statusCode, response.body),
               ),
             ),
           );
         }
       }
     } catch (e) {
-      if (!silent && context.mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
+      final targetContext = context.mounted ? context : _latestContext;
+      if (!silent && targetContext != null && targetContext.mounted) {
+        ScaffoldMessenger.of(targetContext).showSnackBar(
           SnackBar(content: Text('Ошибка проверки обновления: $e')),
         );
       }
@@ -487,6 +503,7 @@ class GithubUpdateService {
     if (_activeDownloadVersion == version) return;
     _activeDownloadVersion = version;
 
+    final packageInfo = await PackageInfo.fromPlatform();
     final prefs = await SharedPreferences.getInstance();
     final File apkFile = await _getTargetApkFile();
     int existingBytes = await apkFile.exists() ? await apkFile.length() : 0;
@@ -494,7 +511,7 @@ class GithubUpdateService {
     final http.Client client = http.Client();
     try {
       final request = http.Request('GET', Uri.parse(downloadUrl));
-      request.headers['User-Agent'] = 'FamilyPulse';
+      request.headers['User-Agent'] = 'FamilyPulse/${packageInfo.version}';
       if (githubToken.isNotEmpty) {
         request.headers['Authorization'] = 'Bearer $githubToken';
       }

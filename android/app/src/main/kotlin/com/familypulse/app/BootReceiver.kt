@@ -20,15 +20,8 @@ class BootReceiver : BroadcastReceiver() {
             val userType = flutterPrefs.getString("flutter.user_type", "") ?: ""
             if (userType != "child") return
 
-            val homeIntent = Intent(Intent.ACTION_MAIN).apply { addCategory(Intent.CATEGORY_HOME) }
-            val isLauncher = context.packageManager.resolveActivity(homeIntent, 0)
-                ?.activityInfo?.packageName == context.packageName
-
             val launchIntent = context.packageManager.getLaunchIntentForPackage(context.packageName)?.apply {
                 addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-                if (!isLauncher) {
-                    putExtra("background_boot", true)
-                }
             }
             if (launchIntent != null) {
                 context.startActivity(launchIntent)
