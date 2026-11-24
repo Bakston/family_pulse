@@ -925,7 +925,8 @@ class _ChildPanelScreenState extends State<ChildPanelScreen>
                 : _cachedGender;
             final currentName =
                 childData['name']?.toString() ?? widget.childName;
-            final childAvatarUrl = (childData['avatarUrl'] ??
+            final childAvatarUrl = (childData['avatarHash'] ??
+                    childData['avatarUrl'] ??
                     childData['photoUrl'] ??
                     childData['avatarBase64'] ??
                     childData['avatar'])

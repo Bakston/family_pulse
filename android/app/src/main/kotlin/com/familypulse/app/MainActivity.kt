@@ -49,8 +49,13 @@ class MainActivity : FlutterFragmentActivity() {
     private val uiHandler = Handler(Looper.getMainLooper())
 
     override fun createFlutterFragment(): FlutterFragment {
+        val mode = if (shouldUseWallpaperBackground()) {
+            TransparencyMode.transparent
+        } else {
+            TransparencyMode.opaque
+        }
         return FlutterFragment.withNewEngine()
-            .transparencyMode(TransparencyMode.transparent)
+            .transparencyMode(mode)
             .build()
     }
 
@@ -58,6 +63,8 @@ class MainActivity : FlutterFragmentActivity() {
         super.onCreate(savedInstanceState)
         if (shouldUseWallpaperBackground()) {
             applyWallpaperWindowStyle()
+        } else {
+            applyOpaqueWindowStyle()
         }
     }
 
@@ -65,6 +72,8 @@ class MainActivity : FlutterFragmentActivity() {
         super.onResume()
         if (shouldUseWallpaperBackground()) {
             applyWallpaperWindowStyle()
+        } else {
+            applyOpaqueWindowStyle()
         }
     }
 
@@ -73,6 +82,8 @@ class MainActivity : FlutterFragmentActivity() {
         setIntent(intent)
         if (shouldUseWallpaperBackground()) {
             applyWallpaperWindowStyle()
+        } else {
+            applyOpaqueWindowStyle()
         }
     }
 
@@ -82,12 +93,22 @@ class MainActivity : FlutterFragmentActivity() {
     }
 
     private fun shouldUseWallpaperBackground(): Boolean {
-        if (isDefaultLauncher()) return true
         val flutterPrefs = getSharedPreferences("FlutterSharedPreferences", Context.MODE_PRIVATE)
-        val nativePrefs = getSharedPreferences("family_pulse_native", Context.MODE_PRIVATE)
         val userType = flutterPrefs.getString("flutter.user_type", "") ?: ""
+        if (userType == "parent") return false
+        if (isDefaultLauncher()) return true
+        val nativePrefs = getSharedPreferences("family_pulse_native", Context.MODE_PRIVATE)
         val childMode = nativePrefs.getString("child_mode", "launcher") ?: "launcher"
         return userType == "child" && childMode == "launcher"
+    }
+
+    private fun applyOpaqueWindowStyle() {
+        try {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_SHOW_WALLPAPER)
+            window.setFormat(PixelFormat.OPAQUE)
+            window.setBackgroundDrawable(ColorDrawable(Color.WHITE))
+            window.decorView.setBackgroundColor(Color.WHITE)
+        } catch (_: Exception) {}
     }
 
     private fun applyWallpaperWindowStyle() {
@@ -175,6 +196,8 @@ class MainActivity : FlutterFragmentActivity() {
         super.configureFlutterEngine(flutterEngine)
         if (shouldUseWallpaperBackground()) {
             applyWallpaperWindowStyle()
+        } else {
+            applyOpaqueWindowStyle()
         }
 
         getSharedPreferences("family_pulse_native", Context.MODE_PRIVATE)
@@ -226,6 +249,8 @@ class MainActivity : FlutterFragmentActivity() {
                     prefs.edit().putString("child_mode", mode).apply()
                     if (shouldUseWallpaperBackground()) {
                         applyWallpaperWindowStyle()
+                    } else {
+                        applyOpaqueWindowStyle()
                     }
                     result.success(true)
                 }
@@ -237,7 +262,7 @@ class MainActivity : FlutterFragmentActivity() {
 
                 "setWallpaperMode" -> {
                     val enabled = call.argument<Boolean>("enabled") ?: true
-                    if (enabled) {
+                    if (enabled && shouldUseWallpaperBackground()) {
                         applyWallpaperWindowStyle()
                     }
                     result.success(true)

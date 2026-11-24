@@ -196,7 +196,7 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
     String selectedIcon = 'home';
     double radiusMeters = 150;
     LatLng selectedPoint =
-        currentChildPos ?? const LatLng(55.751244, 37.618423);
+        currentChildPos ?? const LatLng(56.8389, 60.6057);
     String? editingGeofenceId;
 
     void resetForm(StateSetter setModalState) {
@@ -205,7 +205,7 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
         titleController.clear();
         selectedIcon = 'home';
         radiusMeters = 150;
-        selectedPoint = currentChildPos ?? const LatLng(55.751244, 37.618423);
+        selectedPoint = currentChildPos ?? const LatLng(56.8389, 60.6057);
       });
       try {
         previewMapController.move(selectedPoint, 15.5);
@@ -316,8 +316,8 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                       children: [
                         TileLayer(
                           urlTemplate:
-                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                          userAgentPackageName: 'com.example.family_pulse',
+                              'https://tile2.maps.2gis.com/tiles?x={x}&y={y}&z={z}&v=1',
+                          userAgentPackageName: 'com.familypulse.app',
                         ),
                         CircleLayer(
                           circles: [
@@ -1071,7 +1071,7 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
             final LatLng childPosition =
                 (lat != null && lng != null)
                     ? LatLng(lat, lng)
-                    : const LatLng(55.751244, 37.618423);
+                    : const LatLng(56.8389, 60.6057);
 
             if (lat != null && lng != null && !_hasCenteredInitially) {
               WidgetsBinding.instance.addPostFrameCallback((_) {

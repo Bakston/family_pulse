@@ -74,14 +74,23 @@ class _ChildLocationHistoryScreenState
   void _fitRouteToCamera() {
     if (!_isMapReady || !mounted || _cleanPoints.isEmpty) return;
     try {
-      if (_cleanPoints.length == 1) {
-        _mapController.move(_cleanPoints.first.position, 16.0);
-      } else if (_polylinePoints.length >= 2) {
-        final bounds = LatLngBounds.fromPoints(_polylinePoints);
+      if (_polylinePoints.length < 2) {
+        _mapController.move(_cleanPoints.last.position, 16.0);
+        return;
+      }
+
+      final bounds = LatLngBounds.fromPoints(_polylinePoints);
+      final latSpan = (bounds.north - bounds.south).abs();
+      final lngSpan = (bounds.east - bounds.west).abs();
+
+      if (latSpan < 0.0002 && lngSpan < 0.0002) {
+        _mapController.move(_cleanPoints.last.position, 16.0);
+      } else {
         _mapController.fitCamera(
           CameraFit.bounds(
             bounds: bounds,
             padding: const EdgeInsets.all(52),
+            maxZoom: 16.5,
           ),
         );
       }
@@ -448,7 +457,7 @@ class _ChildLocationHistoryScreenState
                               options: MapOptions(
                                 initialCenter: _cleanPoints.isNotEmpty
                                     ? _cleanPoints.last.position
-                                    : const LatLng(55.751244, 37.618423),
+                                    : const LatLng(56.8389, 60.6057),
                                 initialZoom: 15.0,
                                 onMapReady: () {
                                   _isMapReady = true;
@@ -458,14 +467,8 @@ class _ChildLocationHistoryScreenState
                               children: [
                                 TileLayer(
                                   urlTemplate:
-                                      'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                  fallbackUrl:
-                                      'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-                                  userAgentPackageName:
-                                      'com.example.family_pulse',
-                                  errorTileCallback: (tile, error, stackTrace) {
-                                    debugPrint('HISTORY TILE ERROR: $error');
-                                  },
+                                      'https://tile2.maps.2gis.com/tiles?x={x}&y={y}&z={z}&v=1',
+                                  userAgentPackageName: 'com.familypulse.app',
                                 ),
 
                                 CircleLayer(

@@ -118,7 +118,7 @@ class _ChildLocationCardState extends State<ChildLocationCard>
     final bool hasCoords = widget.lat != null && widget.lng != null;
     final LatLng childPosition = hasCoords
         ? LatLng(widget.lat!, widget.lng!)
-        : const LatLng(55.751244, 37.618423);
+        : const LatLng(56.8389, 60.6057);
 
     final String? activeZoneTitle =
         hasCoords ? _detectCurrentGeofence(childPosition) : null;
@@ -248,14 +248,8 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                             children: [
                               TileLayer(
                                 urlTemplate:
-                                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                fallbackUrl:
-                                    'https://a.basemaps.cartocdn.com/light_all/{z}/{x}/{y}.png',
-                                userAgentPackageName:
-                                    'com.example.family_pulse',
-                                errorTileCallback: (tile, error, stackTrace) {
-                                  debugPrint('TILE ERROR: $error');
-                                },
+                                    'https://tile2.maps.2gis.com/tiles?x={x}&y={y}&z={z}&v=1',
+                                userAgentPackageName: 'com.familypulse.app',
                               ),
 
                               // 1. Круги геозон + круг точности GPS ребёнка
@@ -266,9 +260,10 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                                       point: zone.center,
                                       radius: zone.radiusMeters,
                                       useRadiusInMeter: true,
-                                      color: Colors.indigo.withValues(alpha: 0.12),
-                                      borderColor:
-                                          Colors.indigo.withValues(alpha: 0.5),
+                                      color: Colors.indigo
+                                          .withValues(alpha: 0.12),
+                                      borderColor: Colors.indigo
+                                          .withValues(alpha: 0.5),
                                       borderStrokeWidth: 1.5,
                                     ),
                                   ),
