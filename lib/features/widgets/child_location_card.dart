@@ -3,6 +3,7 @@ import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../../core/services/app_log_service.dart';
 import 'map_markers.dart';
 
 class GeofencePoint {
@@ -120,8 +121,9 @@ class _ChildLocationCardState extends State<ChildLocationCard>
         ? LatLng(widget.lat!, widget.lng!)
         : const LatLng(56.8389, 60.6057);
 
-    final String? activeZoneTitle =
-        hasCoords ? _detectCurrentGeofence(childPosition) : null;
+    final String? activeZoneTitle = hasCoords
+        ? _detectCurrentGeofence(childPosition)
+        : null;
 
     return Card(
       elevation: 6,
@@ -138,8 +140,9 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                 Container(
                   padding: const EdgeInsets.all(8),
                   decoration: BoxDecoration(
-                    color: (activeZoneTitle != null ? Colors.green : Colors.blue)
-                        .withValues(alpha: 0.12),
+                    color:
+                        (activeZoneTitle != null ? Colors.green : Colors.blue)
+                            .withValues(alpha: 0.12),
                     borderRadius: BorderRadius.circular(12),
                   ),
                   child: Icon(
@@ -161,8 +164,8 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                         activeZoneTitle != null
                             ? 'В зоне: $activeZoneTitle'
                             : (hasCoords
-                                ? 'Геолокация активна'
-                                : 'Ожидание сигнала GPS'),
+                                  ? 'Геолокация активна'
+                                  : 'Ожидание сигнала GPS'),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -247,11 +250,18 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                             ),
                             children: [
                               TileLayer(
-                                urlTemplate:
-                                    'https://tile2.maps.2gis.com/tiles?x={x}&y={y}&z={z}&v=1',
+                                urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                                subdomains: const ['a', 'b', 'c', 'd'],
                                 userAgentPackageName: 'com.familypulse.app',
+                                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                errorTileCallback: (tile, error, stackTrace) {
+                                  AppLogService.error(
+                                    'MAP_TILE',
+                                    'z=${tile.coordinates.z} x=${tile.coordinates.x} y=${tile.coordinates.y}: $error',
+                                    stackTrace,
+                                  );
+                                },
                               ),
-
                               // 1. Круги геозон + круг точности GPS ребёнка
                               CircleLayer(
                                 circles: [
@@ -260,10 +270,12 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                                       point: zone.center,
                                       radius: zone.radiusMeters,
                                       useRadiusInMeter: true,
-                                      color: Colors.indigo
-                                          .withValues(alpha: 0.12),
-                                      borderColor: Colors.indigo
-                                          .withValues(alpha: 0.5),
+                                      color: Colors.indigo.withValues(
+                                        alpha: 0.12,
+                                      ),
+                                      borderColor: Colors.indigo.withValues(
+                                        alpha: 0.5,
+                                      ),
                                       borderStrokeWidth: 1.5,
                                     ),
                                   ),

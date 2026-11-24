@@ -3,6 +3,7 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
@@ -16,6 +17,7 @@ import 'child_qr_display_screen.dart';
 import 'parent_profile_screen.dart';
 
 import '../../core/app_theme.dart';
+import '../../core/services/app_log_service.dart';
 import '../../core/services/chat_notification_service.dart';
 import '../../core/services/family_chat_service.dart';
 import '../../core/services/github_update_service.dart';
@@ -500,6 +502,309 @@ class _ParentPanelScreenState extends State<ParentPanelScreen>
     );
   }
 
+  void _showPrivacyPolicySheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => DraggableScrollableSheet(
+        initialChildSize: 0.72,
+        minChildSize: 0.45,
+        maxChildSize: 0.92,
+        expand: false,
+        builder: (context, scrollController) => Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 20),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              const Row(
+                children: [
+                  Icon(Icons.privacy_tip_rounded, color: Colors.teal),
+                  SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      'Политика конфиденциальности',
+                      style: TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const Divider(height: 20),
+              Expanded(
+                child: ListView(
+                  controller: scrollController,
+                  children: const [
+                    Text(
+                      '1. Какие данные обрабатывает FamilyPulse',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Приложение обрабатывает только данные, необходимые для семейной безопасности и родительского контроля: координаты устройства ребёнка (включая фоновый режим), список установленных приложений и время их использования, уровень заряда батареи, а также имена, роли и аватары членов семьи.',
+                      style: TextStyle(fontSize: 13, color: Colors.black87, height: 1.4),
+                    ),
+                    SizedBox(height: 14),
+                    Text(
+                      '2. Доступ и защита информации',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'Все данные привязаны исключительно к вашей семейной группе и передаются по защищённому протоколу. Информация не передаётся третьим лицам и не используется в рекламных целях.',
+                      style: TextStyle(fontSize: 13, color: Colors.black87, height: 1.4),
+                    ),
+                    SizedBox(height: 14),
+                    Text(
+                      '3. Удаление данных и управление',
+                      style: TextStyle(fontWeight: FontWeight.bold, fontSize: 14),
+                    ),
+                    SizedBox(height: 4),
+                    Text(
+                      'История маршрутов автоматически очищается через 14 дней. Родитель может в любой момент отвязать устройство ребёнка или удалить данные профиля в настройках.',
+                      style: TextStyle(fontSize: 13, color: Colors.black87, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Future<void> _showAboutAppSheet() async {
+    String versionText = '—';
+    try {
+      final info = await PackageInfo.fromPlatform();
+      versionText = '${info.version} (сборка ${info.buildNumber})';
+    } catch (_) {}
+
+    if (!mounted) return;
+    showModalBottomSheet(
+      context: context,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  Container(
+                    padding: const EdgeInsets.all(10),
+                    decoration: BoxDecoration(
+                      color: Colors.indigo.shade50,
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: Icon(
+                      Icons.shield_moon_rounded,
+                      color: Colors.indigo.shade700,
+                      size: 28,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      const Text(
+                        'FamilyPulse',
+                        style: TextStyle(
+                          fontSize: 19,
+                          fontWeight: FontWeight.bold,
+                        ),
+                      ),
+                      Text(
+                        'Версия: $versionText',
+                        style: const TextStyle(
+                          fontSize: 12.5,
+                          color: Colors.black54,
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+              const SizedBox(height: 14),
+              const Text(
+                'Семейный лаунчер, геолокация, контроль экранного времени и система мотивации для детей и родителей.',
+                style: TextStyle(fontSize: 13.5, color: Colors.black87, height: 1.4),
+              ),
+              const SizedBox(height: 16),
+              SizedBox(
+                width: double.infinity,
+                child: OutlinedButton.icon(
+                  icon: const Icon(Icons.system_update_rounded, size: 18),
+                  label: const Text('Проверить обновления на GitHub'),
+                  onPressed: () {
+                    Navigator.pop(sheetContext);
+                    GithubUpdateService.checkForUpdates(context, silent: false);
+                  },
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  void _showTariffsSheet() {
+    showModalBottomSheet(
+      context: context,
+      isScrollControlled: true,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+      ),
+      builder: (sheetContext) => SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(20, 14, 20, 24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Center(
+                child: Container(
+                  width: 40,
+                  height: 4,
+                  decoration: BoxDecoration(
+                    color: Colors.grey.shade300,
+                    borderRadius: BorderRadius.circular(2),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 14),
+              const Row(
+                children: [
+                  Icon(Icons.workspace_premium_rounded, color: Colors.amber),
+                  SizedBox(width: 8),
+                  Text(
+                    'Тарифы FamilyPulse',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.green.shade50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.green.shade300),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Базовый (Активен)',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        Text(
+                          '0 ₽ / мес',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            color: Colors.green.shade800,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      '• Геолокация в реальном времени и геозоны\n'
+                      '• Детский лаунчер и лимиты приложений\n'
+                      '• Задания, баллы, цели и семейный чат',
+                      style: TextStyle(fontSize: 12.5, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 10),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(14),
+                decoration: BoxDecoration(
+                  color: Colors.indigo.shade50,
+                  borderRadius: BorderRadius.circular(14),
+                  border: Border.all(color: Colors.indigo.shade200),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        const Text(
+                          'Семейный Plus (Скоро)',
+                          style: TextStyle(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 15,
+                          ),
+                        ),
+                        Text(
+                          'В разработке',
+                          style: TextStyle(
+                            fontWeight: FontWeight.w600,
+                            fontSize: 12,
+                            color: Colors.indigo.shade700,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      '• Расширенная история маршрутов до 30 дней\n'
+                      '• Недельные отчёты по экранному времени\n'
+                      '• Эксклюзивные образы для игрового компаньона',
+                      style: TextStyle(fontSize: 12.5, height: 1.4),
+                    ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _handleScanButtonTap() async {
     PermissionStatus cameraStatus = await Permission.camera.request();
 
@@ -813,11 +1118,14 @@ class _ParentPanelScreenState extends State<ParentPanelScreen>
                         icon: const Icon(Icons.settings, color: Colors.white),
                         tooltip: 'Настройки',
                         onSelected: (value) async {
-                          if (value == 'update') {
-                            GithubUpdateService.checkForUpdates(
-                              context,
-                              silent: false,
-                            );
+                          if (value == 'logs') {
+                            AppLogService.showLogsBottomSheet(context);
+                          } else if (value == 'privacy') {
+                            _showPrivacyPolicySheet();
+                          } else if (value == 'about') {
+                            _showAboutAppSheet();
+                          } else if (value == 'tariffs') {
+                            _showTariffsSheet();
                           } else if (value == 'logout') {
                             _performLogout();
                           }
@@ -825,18 +1133,58 @@ class _ParentPanelScreenState extends State<ParentPanelScreen>
                         itemBuilder: (BuildContext context) =>
                             <PopupMenuEntry<String>>[
                           const PopupMenuItem<String>(
-                            value: 'update',
+                            value: 'logs',
                             child: Row(
                               children: [
                                 Icon(
-                                  Icons.system_update,
-                                  color: Colors.blueGrey,
+                                  Icons.bug_report_rounded,
+                                  color: Colors.indigo,
                                 ),
                                 SizedBox(width: 12),
-                                Text('Проверить обновления'),
+                                Text('Логи'),
                               ],
                             ),
                           ),
+                          const PopupMenuItem<String>(
+                            value: 'privacy',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.privacy_tip_rounded,
+                                  color: Colors.teal,
+                                ),
+                                SizedBox(width: 12),
+                                Text('Политика конфиденциальности'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem<String>(
+                            value: 'about',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.info_outline_rounded,
+                                  color: Colors.blueGrey,
+                                ),
+                                SizedBox(width: 12),
+                                Text('О приложении'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuItem<String>(
+                            value: 'tariffs',
+                            child: Row(
+                              children: [
+                                Icon(
+                                  Icons.workspace_premium_rounded,
+                                  color: Colors.amber,
+                                ),
+                                SizedBox(width: 12),
+                                Text('Тарифы'),
+                              ],
+                            ),
+                          ),
+                          const PopupMenuDivider(),
                           const PopupMenuItem<String>(
                             value: 'logout',
                             child: Row(

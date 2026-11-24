@@ -3,6 +3,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
 
+import '../../core/services/app_log_service.dart';
 import '../../features/widgets/child_location_card.dart';
 import '../../features/widgets/map_markers.dart';
 import '../../features/widgets/family_calendar_widget.dart';
@@ -148,8 +149,9 @@ class _ChildLocationHistoryScreenState
     if (_cleanupDone || widget.childId.isEmpty) return;
     _cleanupDone = true;
     try {
-      final rootRef = FirebaseDatabase.instance
-          .ref('children/${widget.childId}/locationHistory');
+      final rootRef = FirebaseDatabase.instance.ref(
+        'children/${widget.childId}/locationHistory',
+      );
       final snap = await rootRef.get();
       if (!snap.exists || snap.value is! Map) return;
 
@@ -208,12 +210,12 @@ class _ChildLocationHistoryScreenState
                   startTime: dt,
                   endTime: dt,
                   speedKmh: rawSpeed > 0 ? rawSpeed * 3.6 : 0.0,
-                  batteryLevel: int.tryParse(
-                        val['batteryLevel']?.toString() ?? '100',
-                      ) ??
+                  batteryLevel:
+                      int.tryParse(val['batteryLevel']?.toString() ?? '100') ??
                       100,
                   geofenceTitle:
-                      val['geofenceTitle']?.toString() ?? _findGeofenceTitle(pos),
+                      val['geofenceTitle']?.toString() ??
+                      _findGeofenceTitle(pos),
                 ),
               );
             }
@@ -225,7 +227,10 @@ class _ChildLocationHistoryScreenState
       final noSpikes = _filterGpsSpikes(rawPoints);
       final mergedStops = _mergeDuplicateStops(noSpikes);
       final distKm = _calculateTotalDistanceKm(mergedStops);
-      final simplifiedPolyline = _downsamplePolyline(mergedStops, maxPoints: 220);
+      final simplifiedPolyline = _downsamplePolyline(
+        mergedStops,
+        maxPoints: 220,
+      );
 
       if (!mounted) return;
       setState(() {
@@ -293,7 +298,8 @@ class _ChildLocationHistoryScreenState
       final curr = points[i];
 
       final dist = distance.as(LengthUnit.Meter, prev.position, curr.position);
-      final bool sameZone = prev.geofenceTitle != null &&
+      final bool sameZone =
+          prev.geofenceTitle != null &&
           prev.geofenceTitle == curr.geofenceTitle;
 
       if (dist < 30.0 || sameZone) {
@@ -404,7 +410,10 @@ class _ChildLocationHistoryScreenState
             ),
           IconButton(
             tooltip: 'Выбрать дату в календаре',
-            icon: const Icon(Icons.calendar_month_rounded, color: Colors.indigo),
+            icon: const Icon(
+              Icons.calendar_month_rounded,
+              color: Colors.indigo,
+            ),
             onPressed: _pickCustomDate,
           ),
         ],
@@ -466,11 +475,18 @@ class _ChildLocationHistoryScreenState
                               ),
                               children: [
                                 TileLayer(
-                                  urlTemplate:
-                                      'https://tile2.maps.2gis.com/tiles?x={x}&y={y}&z={z}&v=1',
+                                  urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                                  subdomains: const ['a', 'b', 'c', 'd'],
                                   userAgentPackageName: 'com.familypulse.app',
+                                  fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                  errorTileCallback: (tile, error, stackTrace) {
+                                    AppLogService.error(
+                                      'MAP_TILE',
+                                      'z=${tile.coordinates.z} x=${tile.coordinates.x} y=${tile.coordinates.y}: $error',
+                                      stackTrace,
+                                    );
+                                  },
                                 ),
-
                                 CircleLayer(
                                   circles: widget.geofences
                                       .map(
@@ -478,10 +494,12 @@ class _ChildLocationHistoryScreenState
                                           point: z.center,
                                           radius: z.radiusMeters,
                                           useRadiusInMeter: true,
-                                          color: Colors.indigo
-                                              .withValues(alpha: 0.1),
-                                          borderColor: Colors.indigo
-                                              .withValues(alpha: 0.4),
+                                          color: Colors.indigo.withValues(
+                                            alpha: 0.1,
+                                          ),
+                                          borderColor: Colors.indigo.withValues(
+                                            alpha: 0.4,
+                                          ),
                                           borderStrokeWidth: 1.5,
                                         ),
                                       )
@@ -550,8 +568,9 @@ class _ChildLocationHistoryScreenState
                                             ),
                                             boxShadow: [
                                               BoxShadow(
-                                                color: Colors.black
-                                                    .withValues(alpha: 0.3),
+                                                color: Colors.black.withValues(
+                                                  alpha: 0.3,
+                                                ),
                                                 blurRadius: 6,
                                               ),
                                             ],
@@ -583,8 +602,9 @@ class _ChildLocationHistoryScreenState
                                     borderRadius: BorderRadius.circular(14),
                                     boxShadow: [
                                       BoxShadow(
-                                        color: Colors.black
-                                            .withValues(alpha: 0.08),
+                                        color: Colors.black.withValues(
+                                          alpha: 0.08,
+                                        ),
                                         blurRadius: 8,
                                       ),
                                     ],
@@ -652,23 +672,27 @@ class _ChildLocationHistoryScreenState
                                   separatorBuilder: (_, _) =>
                                       const Divider(height: 1),
                                   itemBuilder: (context, index) {
-                                    final point = _cleanPoints[
-                                        _cleanPoints.length - 1 - index];
+                                    final point =
+                                        _cleanPoints[_cleanPoints.length -
+                                            1 -
+                                            index];
                                     final isSelected =
                                         point.id == _selectedPointId;
                                     final zoneTitle = point.geofenceTitle;
 
                                     final stayMins = point.stayDurationMinutes;
-                                    final stayText =
-                                        _formatStayDuration(stayMins);
+                                    final stayText = _formatStayDuration(
+                                      stayMins,
+                                    );
                                     final timeRange = stayMins >= 2
                                         ? '${_formatTime(point.startTime)} – ${_formatTime(point.endTime)}${stayText.isNotEmpty ? ' ($stayText)' : ''}'
                                         : _formatTime(point.startTime);
 
                                     return ListTile(
                                       selected: isSelected,
-                                      selectedTileColor:
-                                          Colors.blue.withValues(alpha: 0.08),
+                                      selectedTileColor: Colors.blue.withValues(
+                                        alpha: 0.08,
+                                      ),
                                       shape: RoundedRectangleBorder(
                                         borderRadius: BorderRadius.circular(12),
                                       ),
@@ -681,8 +705,9 @@ class _ChildLocationHistoryScreenState
                                           zoneTitle != null
                                               ? Icons.place_rounded
                                               : (stayMins >= 5
-                                                  ? Icons.pause_circle_filled
-                                                  : Icons.my_location_rounded),
+                                                    ? Icons.pause_circle_filled
+                                                    : Icons
+                                                          .my_location_rounded),
                                           size: 18,
                                           color: zoneTitle != null
                                               ? Colors.teal
@@ -736,10 +761,7 @@ class _ChildLocationHistoryScreenState
         shape: BoxShape.circle,
         border: Border.all(color: Colors.white, width: 2.5),
         boxShadow: [
-          BoxShadow(
-            color: Colors.black.withValues(alpha: 0.25),
-            blurRadius: 4,
-          ),
+          BoxShadow(color: Colors.black.withValues(alpha: 0.25), blurRadius: 4),
         ],
       ),
       child: Icon(icon, color: Colors.white, size: 18),

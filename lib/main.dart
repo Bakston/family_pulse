@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:material_ui/material_ui.dart';
 import 'package:flutter/services.dart';
 import 'package:firebase_core/firebase_core.dart';
@@ -6,6 +7,7 @@ import 'package:firebase_database/firebase_database.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/app_theme.dart';
+import 'core/services/app_log_service.dart';
 import 'core/services/chat_notification_service.dart';
 import 'core/services/family_chat_service.dart';
 import 'core/services/github_update_service.dart';
@@ -15,36 +17,50 @@ import 'features/auth/initial_session_wrapper.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
-void main() async {
-  WidgetsFlutterBinding.ensureInitialized();
+void main() {
+  runZonedGuarded(() async {
+    WidgetsFlutterBinding.ensureInitialized();
 
-  await SystemChrome.setPreferredOrientations([
-    DeviceOrientation.portraitUp,
-    DeviceOrientation.portraitDown,
-  ]);
+    FlutterError.onError = (FlutterErrorDetails details) {
+      FlutterError.presentError(details);
+      AppLogService.error('FLUTTER_UI', details.exception, details.stack);
+    };
 
-  await Firebase.initializeApp();
-  await ChatNotificationService.handleInitialLaunchIfNeeded();
+    PlatformDispatcher.instance.onError = (Object error, StackTrace stack) {
+      AppLogService.error('DART_ASYNC', error, stack);
+      return true;
+    };
 
-  final prefs = await SharedPreferences.getInstance();
-  final userType = prefs.getString('user_type') ?? '';
+    await SystemChrome.setPreferredOrientations([
+      DeviceOrientation.portraitUp,
+      DeviceOrientation.portraitDown,
+    ]);
 
-  if (userType == 'child') {
-    final childId = prefs.getString('saved_child_id') ?? '';
-    if (childId.isNotEmpty) {
-      unawaited(LocationService.startChildLocationTracking(childId: childId));
-      unawaited(_bootstrapChildChatNotifications(childId));
+    await Firebase.initializeApp();
+    await ChatNotificationService.handleInitialLaunchIfNeeded();
+
+    final prefs = await SharedPreferences.getInstance();
+    final userType = prefs.getString('user_type') ?? '';
+
+    if (userType == 'child') {
+      final childId = prefs.getString('saved_child_id') ?? '';
+      if (childId.isNotEmpty) {
+        unawaited(LocationService.startChildLocationTracking(childId: childId));
+        unawaited(_bootstrapChildChatNotifications(childId));
+      }
+    } else if (userType == 'parent') {
+      // При каждом холодном запуске (в т.ч. после смахивания из недавних) сессия заблокирована
+      ParentSecurityService.isSessionUnlocked = false;
+      final uid = prefs.getString('user_uid') ?? '';
+      if (uid.isNotEmpty) {
+        unawaited(_bootstrapParentChatNotifications(uid));
+      }
     }
-  } else if (userType == 'parent') {
-    // При каждом холодном запуске (в т.ч. после смахивания из недавних) сессия заблокирована
-    ParentSecurityService.isSessionUnlocked = false;
-    final uid = prefs.getString('user_uid') ?? '';
-    if (uid.isNotEmpty) {
-      unawaited(_bootstrapParentChatNotifications(uid));
-    }
-  }
 
-  runApp(const FamilyPulseApp());
+    runApp(const FamilyPulseApp());
+  }, (Object error, StackTrace stack) {
+    AppLogService.error('DART_ZONE', error, stack);
+  });
 }
 
 Future<void> _bootstrapChildChatNotifications(String childId) async {
@@ -62,7 +78,9 @@ Future<void> _bootstrapChildChatNotifications(String childId) async {
         currentMemberId: childId,
       );
     }
-  } catch (_) {}
+  } catch (e, s) {
+    AppLogService.error('BOOT_CHILD_CHAT', e, s);
+  }
 }
 
 Future<void> _bootstrapParentChatNotifications(String uid) async {
@@ -74,7 +92,9 @@ Future<void> _bootstrapParentChatNotifications(String uid) async {
         currentMemberId: uid,
       );
     }
-  } catch (_) {}
+  } catch (e, s) {
+    AppLogService.error('BOOT_PARENT_CHAT', e, s);
+  }
 }
 
 class FamilyPulseApp extends StatefulWidget {

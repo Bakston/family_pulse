@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/app_theme.dart';
 import '../../core/services/app_control_service.dart';
+import '../../core/services/app_log_service.dart';
 import '../../core/services/daily_tasks_service.dart';
 import '../../core/services/family_chat_service.dart';
 import '../../features/widgets/child_goal_card.dart';
@@ -34,6 +35,7 @@ class ChildDetailScreen extends StatefulWidget {
 class _ChildDetailScreenState extends State<ChildDetailScreen> {
   final MapController _mapController = MapController();
   bool _hasCenteredInitially = false;
+  bool _isMapReady = false;
 
   DatabaseReference get _childRef =>
       FirebaseDatabase.instance.ref('children/${widget.childId}');
@@ -95,8 +97,9 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
       final currentUid = prefs.getString('user_uid') ?? '';
       final localRole = prefs.getString('user_role') ?? 'Родитель';
       final localName = prefs.getString('user_name') ?? '';
-      final actorName =
-          localName.isNotEmpty ? '$localRole $localName' : localRole;
+      final actorName = localName.isNotEmpty
+          ? '$localRole $localName'
+          : localRole;
 
       String primaryParentUid = currentUid;
       if (primaryParentUid.isEmpty) {
@@ -193,10 +196,10 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
   }) {
     final titleController = TextEditingController();
     final previewMapController = MapController();
+    bool isPreviewMapReady = false;
     String selectedIcon = 'home';
     double radiusMeters = 150;
-    LatLng selectedPoint =
-        currentChildPos ?? const LatLng(56.8389, 60.6057);
+    LatLng selectedPoint = currentChildPos ?? const LatLng(56.8389, 60.6057);
     String? editingGeofenceId;
 
     void resetForm(StateSetter setModalState) {
@@ -207,6 +210,7 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
         radiusMeters = 150;
         selectedPoint = currentChildPos ?? const LatLng(56.8389, 60.6057);
       });
+      if (!isPreviewMapReady) return;
       try {
         previewMapController.move(selectedPoint, 15.5);
       } catch (_) {}
@@ -220,6 +224,7 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
         radiusMeters = zone.radiusMeters.clamp(50.0, 500.0);
         selectedPoint = zone.center;
       });
+      if (!isPreviewMapReady) return;
       try {
         previewMapController.move(zone.center, 16.0);
       } catch (_) {}
@@ -307,6 +312,9 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                       options: MapOptions(
                         initialCenter: selectedPoint,
                         initialZoom: 15.5,
+                        onMapReady: () {
+                          isPreviewMapReady = true;
+                        },
                         onTap: (tapPosition, point) {
                           setModalState(() {
                             selectedPoint = point;
@@ -315,9 +323,18 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                       ),
                       children: [
                         TileLayer(
-                          urlTemplate:
-                              'https://tile2.maps.2gis.com/tiles?x={x}&y={y}&z={z}&v=1',
+                          urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                          subdomains: const ['a', 'b', 'c', 'd'],
                           userAgentPackageName: 'com.familypulse.app',
+                          fallbackUrl:
+                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                          errorTileCallback: (tile, error, stackTrace) {
+                            AppLogService.error(
+                              'MAP_TILE',
+                              'z=${tile.coordinates.z} x=${tile.coordinates.x} y=${tile.coordinates.y}: $error',
+                              stackTrace,
+                            );
+                          },
                         ),
                         CircleLayer(
                           circles: [
@@ -391,10 +408,7 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                       },
                     ),
                     ChoiceChip(
-                      avatar: const Icon(
-                        Icons.sports_soccer_rounded,
-                        size: 16,
-                      ),
+                      avatar: const Icon(Icons.sports_soccer_rounded, size: 16),
                       label: const Text('Кружок'),
                       selected: selectedIcon == 'sport',
                       onSelected: (_) {
@@ -453,13 +467,13 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                         await _childRef
                             .child('geofences/$editingGeofenceId')
                             .update({
-                          'title': title,
-                          'iconType': selectedIcon,
-                          'latitude': selectedPoint.latitude,
-                          'longitude': selectedPoint.longitude,
-                          'radius': radiusMeters.toInt(),
-                          'updatedAt': ServerValue.timestamp,
-                        });
+                              'title': title,
+                              'iconType': selectedIcon,
+                              'latitude': selectedPoint.latitude,
+                              'longitude': selectedPoint.longitude,
+                              'radius': radiusMeters.toInt(),
+                              'updatedAt': ServerValue.timestamp,
+                            });
                       } else {
                         await _childRef.child('geofences').push().set({
                           'title': title,
@@ -502,7 +516,10 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                   const Divider(height: 24),
                   const Text(
                     'Сохранённые точки (нажмите для редактирования):',
-                    style: TextStyle(fontWeight: FontWeight.bold, fontSize: 13.5),
+                    style: TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 13.5,
+                    ),
                   ),
                   const SizedBox(height: 6),
                   ...existingGeofences.map((z) {
@@ -517,8 +534,9 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                       ),
                       child: ListTile(
                         dense: true,
-                        contentPadding:
-                            const EdgeInsets.symmetric(horizontal: 6),
+                        contentPadding: const EdgeInsets.symmetric(
+                          horizontal: 6,
+                        ),
                         leading: Icon(
                           _resolveGeofenceIcon(z.iconType),
                           color: Colors.teal,
@@ -574,6 +592,7 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
         ),
       ),
     ).whenComplete(() {
+      isPreviewMapReady = false;
       titleController.dispose();
       previewMapController.dispose();
     });
@@ -707,8 +726,9 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
     required int totalMinutes,
     required Color color,
   }) {
-    final double ratio =
-        totalMinutes > 0 ? (minutes / totalMinutes).clamp(0.0, 1.0) : 0.0;
+    final double ratio = totalMinutes > 0
+        ? (minutes / totalMinutes).clamp(0.0, 1.0)
+        : 0.0;
     return Row(
       children: [
         SizedBox(
@@ -760,22 +780,15 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
     showDialog(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        insetPadding: const EdgeInsets.symmetric(
-          horizontal: 20,
-          vertical: 24,
-        ),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: Row(
           children: [
             const Icon(Icons.emoji_events, color: Colors.amber, size: 26),
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                isPendingApproval
-                    ? 'Согласование цели'
-                    : 'Редактировать цель',
+                isPendingApproval ? 'Согласование цели' : 'Редактировать цель',
                 style: const TextStyle(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -950,9 +963,7 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(20),
-        ),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
         title: const Text('Завершить цель и выдать награду?'),
         content: Text(
           'Цель «$goalTitle» будет отмечена как выполненная (накоплено $currentPoints из $targetPoints Б), а счётчик баллов обнулится для новой цели.',
@@ -1068,15 +1079,17 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                 100;
             final bool isCharging = locData['isCharging'] == true;
 
-            final LatLng childPosition =
-                (lat != null && lng != null)
-                    ? LatLng(lat, lng)
-                    : const LatLng(56.8389, 60.6057);
+            final LatLng childPosition = (lat != null && lng != null)
+                ? LatLng(lat, lng)
+                : const LatLng(56.8389, 60.6057);
 
             if (lat != null && lng != null && !_hasCenteredInitially) {
+              _hasCenteredInitially = true;
               WidgetsBinding.instance.addPostFrameCallback((_) {
-                _mapController.move(childPosition, 16.0);
-                _hasCenteredInitially = true;
+                if (!mounted || !_isMapReady) return;
+                try {
+                  _mapController.move(childPosition, 16.0);
+                } catch (_) {}
               });
             }
 
@@ -1121,7 +1134,8 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                 ? Map<dynamic, dynamic>.from(childData['goal'] as Map)
                 : {};
             final goalTitle = goalMap['title']?.toString() ?? '';
-            final goalStatus = goalMap['status']?.toString() ??
+            final goalStatus =
+                goalMap['status']?.toString() ??
                 (goalTitle.isNotEmpty ? 'active' : 'none');
             final int currentPoints =
                 int.tryParse(goalMap['current']?.toString() ?? '0') ?? 0;
@@ -1271,10 +1285,11 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                               icon: isCharging
                                   ? Icons.battery_charging_full
                                   : batteryLevel > 20
-                                      ? Icons.battery_full
-                                      : Icons.battery_alert,
-                              iconColor:
-                                  batteryLevel > 20 ? Colors.green : Colors.red,
+                                  ? Icons.battery_full
+                                  : Icons.battery_alert,
+                              iconColor: batteryLevel > 20
+                                  ? Colors.green
+                                  : Colors.red,
                               label: 'Заряд',
                               value: '$batteryLevel%${isCharging ? ' ⚡' : ''}',
                             ),
@@ -1357,8 +1372,9 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                                     label: catTitle,
                                     minutes: mins,
                                     totalMinutes: totalMins,
-                                    color: paletteColors[
-                                        idx % paletteColors.length],
+                                    color:
+                                        paletteColors[idx %
+                                            paletteColors.length],
                                   ),
                                 );
                               }),
@@ -1488,8 +1504,9 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                               icon: Icons.wifi_tethering,
                               color: lat != null ? Colors.green : Colors.orange,
                               title: 'Статус связи',
-                              value:
-                                  lat != null ? 'В сети' : 'Ожидание сигнала',
+                              value: lat != null
+                                  ? 'В сети'
+                                  : 'Ожидание сигнала',
                             ),
                             const SizedBox(height: 10),
                             _buildStatRow(
