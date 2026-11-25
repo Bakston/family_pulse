@@ -35,7 +35,7 @@ class ChildDetailScreen extends StatefulWidget {
 class _ChildDetailScreenState extends State<ChildDetailScreen> {
   final MapController _mapController = MapController();
   bool _hasCenteredInitially = false;
-  bool _isMapReady = false;
+  final bool _isMapReady = false;
 
   DatabaseReference get _childRef =>
       FirebaseDatabase.instance.ref('children/${widget.childId}');

@@ -31,6 +31,7 @@ class ChildLocationCard extends StatefulWidget {
   final double speedKmh;
   final String formattedTimestamp;
   final MapController mapController;
+  final VoidCallback? onMapReady;
   final List<GeofencePoint> geofences;
   final Future<void> Function() onForceRefresh;
   final VoidCallback onAddGeofencePressed;
@@ -46,6 +47,7 @@ class ChildLocationCard extends StatefulWidget {
     required this.speedKmh,
     required this.formattedTimestamp,
     required this.mapController,
+    this.onMapReady,
     required this.geofences,
     required this.onForceRefresh,
     required this.onAddGeofencePressed,
@@ -60,6 +62,7 @@ class _ChildLocationCardState extends State<ChildLocationCard>
     with SingleTickerProviderStateMixin {
   late final AnimationController _spinController;
   bool _isRefreshing = false;
+  String? _activeZoneTitle;
 
   @override
   void initState() {
@@ -68,12 +71,48 @@ class _ChildLocationCardState extends State<ChildLocationCard>
       vsync: this,
       duration: const Duration(milliseconds: 900),
     );
+    _recomputeActiveGeofence();
+  }
+
+  @override
+  void didUpdateWidget(covariant ChildLocationCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.lat != widget.lat ||
+        oldWidget.lng != widget.lng ||
+        !_areGeofencesEqual(oldWidget.geofences, widget.geofences)) {
+      _recomputeActiveGeofence();
+    }
   }
 
   @override
   void dispose() {
     _spinController.dispose();
     super.dispose();
+  }
+
+  bool _areGeofencesEqual(List<GeofencePoint> a, List<GeofencePoint> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (int i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id ||
+          a[i].title != b[i].title ||
+          a[i].iconType != b[i].iconType ||
+          a[i].radiusMeters != b[i].radiusMeters ||
+          a[i].center.latitude != b[i].center.latitude ||
+          a[i].center.longitude != b[i].center.longitude) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  void _recomputeActiveGeofence() {
+    if (widget.lat == null || widget.lng == null) {
+      _activeZoneTitle = null;
+      return;
+    }
+    final childPos = LatLng(widget.lat!, widget.lng!);
+    _activeZoneTitle = _detectCurrentGeofence(childPos);
   }
 
   Future<void> _handleRefresh() async {
@@ -109,8 +148,20 @@ class _ChildLocationCardState extends State<ChildLocationCard>
     final uri = Uri.parse(
       'https://www.google.com/maps/dir/?api=1&destination=${target.latitude},${target.longitude}',
     );
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    try {
+      if (await canLaunchUrl(uri)) {
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
+      }
+    } catch (e, st) {
+      AppLogService.error('MAP_ROUTE', 'Ошибка открытия маршрута: $e', st);
+    }
+  }
+
+  void _centerOnChild(LatLng childPosition) {
+    try {
+      widget.mapController.move(childPosition, 16.5);
+    } catch (e, st) {
+      AppLogService.error('MAP_CTRL', 'Ошибка центрирования карты: $e', st);
     }
   }
 
@@ -121,9 +172,7 @@ class _ChildLocationCardState extends State<ChildLocationCard>
         ? LatLng(widget.lat!, widget.lng!)
         : const LatLng(56.8389, 60.6057);
 
-    final String? activeZoneTitle = hasCoords
-        ? _detectCurrentGeofence(childPosition)
-        : null;
+    final String? activeZoneTitle = _activeZoneTitle;
 
     return Card(
       elevation: 6,
@@ -164,8 +213,8 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                         activeZoneTitle != null
                             ? 'В зоне: $activeZoneTitle'
                             : (hasCoords
-                                  ? 'Геолокация активна'
-                                  : 'Ожидание сигнала GPS'),
+                                ? 'Геолокация активна'
+                                : 'Ожидание сигнала GPS'),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -247,13 +296,16 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                             options: MapOptions(
                               initialCenter: childPosition,
                               initialZoom: 16.0,
+                              onMapReady: widget.onMapReady,
                             ),
                             children: [
                               TileLayer(
-                                urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
+                                urlTemplate:
+                                    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
                                 subdomains: const ['a', 'b', 'c', 'd'],
                                 userAgentPackageName: 'com.familypulse.app',
-                                fallbackUrl: 'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                                fallbackUrl:
+                                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
                                 errorTileCallback: (tile, error, stackTrace) {
                                   AppLogService.error(
                                     'MAP_TILE',
@@ -332,9 +384,7 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                         child: FloatingActionButton.small(
                           heroTag: 'center_child_map',
                           backgroundColor: Colors.white,
-                          onPressed: () {
-                            widget.mapController.move(childPosition, 16.5);
-                          },
+                          onPressed: () => _centerOnChild(childPosition),
                           child: const Icon(
                             Icons.my_location_rounded,
                             color: Colors.blue,
