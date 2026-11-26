@@ -2,7 +2,7 @@ name: family_pulse
 description: "Мобильное приложение FamilyPulse для защиты и связи членов семьи."
 publish_to: 'none'
 
-version: 1.0.38+39
+version: 1.0.39+40
 
 environment:
   sdk: ^3.13.3
