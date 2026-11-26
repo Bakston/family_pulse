@@ -1,7 +1,7 @@
-import 'package:material_ui/material_ui.dart';
 import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../core/app_theme.dart';
@@ -11,6 +11,7 @@ import '../../core/services/daily_tasks_service.dart';
 import '../../core/services/family_chat_service.dart';
 import '../../features/widgets/child_goal_card.dart';
 import '../../features/widgets/child_location_card.dart';
+import '../../features/widgets/family_map_widget.dart';
 import '../../features/widgets/user_avatar_widget.dart';
 import 'child_apps_screen.dart';
 import 'child_location_history_screen.dart';
@@ -33,10 +34,6 @@ class ChildDetailScreen extends StatefulWidget {
 }
 
 class _ChildDetailScreenState extends State<ChildDetailScreen> {
-  final MapController _mapController = MapController();
-  bool _hasCenteredInitially = false;
-  final bool _isMapReady = false;
-
   DatabaseReference get _childRef =>
       FirebaseDatabase.instance.ref('children/${widget.childId}');
 
@@ -195,25 +192,22 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
     required List<GeofencePoint> existingGeofences,
   }) {
     final titleController = TextEditingController();
-    final previewMapController = MapController();
-    bool isPreviewMapReady = false;
+    final previewMapKey = GlobalKey<FamilyMapWidgetState>();
     String selectedIcon = 'home';
     double radiusMeters = 150;
     LatLng selectedPoint = currentChildPos ?? const LatLng(56.8389, 60.6057);
     String? editingGeofenceId;
 
     void resetForm(StateSetter setModalState) {
+      final nextPoint = currentChildPos ?? const LatLng(56.8389, 60.6057);
       setModalState(() {
         editingGeofenceId = null;
         titleController.clear();
         selectedIcon = 'home';
         radiusMeters = 150;
-        selectedPoint = currentChildPos ?? const LatLng(56.8389, 60.6057);
+        selectedPoint = nextPoint;
       });
-      if (!isPreviewMapReady) return;
-      try {
-        previewMapController.move(selectedPoint, 15.5);
-      } catch (_) {}
+      previewMapKey.currentState?.moveTo(nextPoint, zoom: 15.5);
     }
 
     void startEditingZone(GeofencePoint zone, StateSetter setModalState) {
@@ -224,10 +218,7 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
         radiusMeters = zone.radiusMeters.clamp(50.0, 500.0);
         selectedPoint = zone.center;
       });
-      if (!isPreviewMapReady) return;
-      try {
-        previewMapController.move(zone.center, 16.0);
-      } catch (_) {}
+      previewMapKey.currentState?.moveTo(zone.center, zoom: 16.0);
     }
 
     showModalBottomSheet(
@@ -307,62 +298,50 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                   height: 185,
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(14),
-                    child: FlutterMap(
-                      mapController: previewMapController,
-                      options: MapOptions(
-                        initialCenter: selectedPoint,
-                        initialZoom: 15.5,
-                        onMapReady: () {
-                          isPreviewMapReady = true;
-                        },
-                        onTap: (tapPosition, point) {
-                          setModalState(() {
-                            selectedPoint = point;
-                          });
-                        },
-                      ),
-                      children: [
-                        TileLayer(
-                          urlTemplate: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                          subdomains: const ['a', 'b', 'c', 'd'],
-                          userAgentPackageName: 'com.familypulse.app',
-                          fallbackUrl:
-                              'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                          errorTileCallback: (tile, error, stackTrace) {
-                            AppLogService.error(
-                              'MAP_TILE',
-                              'z=${tile.coordinates.z} x=${tile.coordinates.x} y=${tile.coordinates.y}: $error',
-                              stackTrace,
-                            );
-                          },
-                        ),
-                        CircleLayer(
-                          circles: [
-                            CircleMarker(
-                              point: selectedPoint,
-                              radius: radiusMeters,
-                              useRadiusInMeter: true,
-                              color: Colors.teal.withValues(alpha: 0.2),
-                              borderColor: Colors.teal,
-                              borderStrokeWidth: 2,
-                            ),
-                          ],
-                        ),
-                        MarkerLayer(
-                          markers: [
-                            Marker(
-                              point: selectedPoint,
-                              width: 40,
-                              height: 40,
-                              child: const Icon(
-                                Icons.location_pin,
-                                color: Colors.teal,
-                                size: 38,
-                              ),
-                            ),
-                          ],
+                    child: FamilyMapWidget(
+                      key: previewMapKey,
+                      center: selectedPoint,
+                      markerPoint: selectedPoint,
+                      initialZoom: 15.5,
+                      followMarker: false,
+                      showDefaultMarker: false,
+                      userAgentPackageName: 'com.familypulse.app',
+                      tileUrlTemplate:
+                          'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                      circles: [
+                        CircleMarker(
+                          point: selectedPoint,
+                          radius: radiusMeters,
+                          useRadiusInMeter: true,
+                          color: Colors.teal.withValues(alpha: 0.2),
+                          borderColor: Colors.teal,
+                          borderStrokeWidth: 2,
                         ),
                       ],
+                      extraMarkers: [
+                        Marker(
+                          point: selectedPoint,
+                          width: 40,
+                          height: 40,
+                          child: const Icon(
+                            Icons.location_pin,
+                            color: Colors.teal,
+                            size: 38,
+                          ),
+                        ),
+                      ],
+                      onTap: (point) {
+                        setModalState(() {
+                          selectedPoint = point;
+                        });
+                      },
+                      onTileError: (errorCount) {
+                        AppLogService.error(
+                          'MAP_TILE',
+                          'Ошибки загрузки тайлов геозоны: $errorCount',
+                          null,
+                        );
+                      },
                     ),
                   ),
                 ),
@@ -592,9 +571,7 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
         ),
       ),
     ).whenComplete(() {
-      isPreviewMapReady = false;
       titleController.dispose();
-      previewMapController.dispose();
     });
   }
 
@@ -1083,16 +1060,6 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                 ? LatLng(lat, lng)
                 : const LatLng(56.8389, 60.6057);
 
-            if (lat != null && lng != null && !_hasCenteredInitially) {
-              _hasCenteredInitially = true;
-              WidgetsBinding.instance.addPostFrameCallback((_) {
-                if (!mounted || !_isMapReady) return;
-                try {
-                  _mapController.move(childPosition, 16.0);
-                } catch (_) {}
-              });
-            }
-
             final double speedValueKmh = speed > 0 ? speed * 3.6 : 0.0;
             final speedKmh = speedValueKmh.toStringAsFixed(1);
 
@@ -1246,7 +1213,6 @@ class _ChildDetailScreenState extends State<ChildDetailScreen> {
                       accuracy: accuracy,
                       speedKmh: speedValueKmh,
                       formattedTimestamp: _formatTimestamp(timestamp),
-                      mapController: _mapController,
                       geofences: geofencesList,
                       onForceRefresh: () async {
                         await _childRef.child('commands').update({

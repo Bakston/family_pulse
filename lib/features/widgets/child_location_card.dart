@@ -1,9 +1,10 @@
-import 'package:material_ui/material_ui.dart';
 import 'package:flutter_map/flutter_map.dart';
 import 'package:latlong2/latlong.dart';
+import 'package:material_ui/material_ui.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/services/app_log_service.dart';
+import 'family_map_widget.dart';
 import 'map_markers.dart';
 
 class GeofencePoint {
@@ -30,7 +31,6 @@ class ChildLocationCard extends StatefulWidget {
   final double accuracy;
   final double speedKmh;
   final String formattedTimestamp;
-  final MapController mapController;
   final VoidCallback? onMapReady;
   final List<GeofencePoint> geofences;
   final Future<void> Function() onForceRefresh;
@@ -46,7 +46,6 @@ class ChildLocationCard extends StatefulWidget {
     required this.accuracy,
     required this.speedKmh,
     required this.formattedTimestamp,
-    required this.mapController,
     this.onMapReady,
     required this.geofences,
     required this.onForceRefresh,
@@ -60,6 +59,8 @@ class ChildLocationCard extends StatefulWidget {
 
 class _ChildLocationCardState extends State<ChildLocationCard>
     with SingleTickerProviderStateMixin {
+  final GlobalKey<FamilyMapWidgetState> _mapKey =
+      GlobalKey<FamilyMapWidgetState>();
   late final AnimationController _spinController;
   bool _isRefreshing = false;
   String? _activeZoneTitle;
@@ -132,7 +133,6 @@ class _ChildLocationCardState extends State<ChildLocationCard>
     }
   }
 
-  /// Определяем, находится ли ребёнок сейчас внутри одной из геозон
   String? _detectCurrentGeofence(LatLng childPos) {
     const distance = Distance();
     for (final zone in widget.geofences) {
@@ -159,7 +159,7 @@ class _ChildLocationCardState extends State<ChildLocationCard>
 
   void _centerOnChild(LatLng childPosition) {
     try {
-      widget.mapController.move(childPosition, 16.5);
+      _mapKey.currentState?.moveTo(childPosition, zoom: 16.5);
     } catch (e, st) {
       AppLogService.error('MAP_CTRL', 'Ошибка центрирования карты: $e', st);
     }
@@ -183,7 +183,6 @@ class _ChildLocationCardState extends State<ChildLocationCard>
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ШАПКА: Статус места + Кнопка принудительного обновления
             Row(
               children: [
                 Container(
@@ -213,8 +212,8 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                         activeZoneTitle != null
                             ? 'В зоне: $activeZoneTitle'
                             : (hasCoords
-                                ? 'Геолокация активна'
-                                : 'Ожидание сигнала GPS'),
+                                  ? 'Геолокация активна'
+                                  : 'Ожидание сигнала GPS'),
                         style: const TextStyle(
                           fontSize: 16,
                           fontWeight: FontWeight.bold,
@@ -239,7 +238,6 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                     ],
                   ),
                 ),
-                // КНОПКА ОБНОВИТЬ
                 Tooltip(
                   message: 'Обновить геопозицию сейчас',
                   child: Material(
@@ -264,10 +262,7 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                 ),
               ],
             ),
-
             const SizedBox(height: 12),
-
-            // КАРТА С АВАТАРКОЙ РЕБЁНКА И МАРКЕРАМИ ВАЖНЫХ ТОЧЕК
             SizedBox(
               height: 250,
               child: ClipRRect(
@@ -291,92 +286,76 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                               ),
                             ),
                           )
-                        : FlutterMap(
-                            mapController: widget.mapController,
-                            options: MapOptions(
-                              initialCenter: childPosition,
-                              initialZoom: 16.0,
-                              onMapReady: widget.onMapReady,
-                            ),
-                            children: [
-                              TileLayer(
-                                urlTemplate:
-                                    'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png',
-                                subdomains: const ['a', 'b', 'c', 'd'],
-                                userAgentPackageName: 'com.familypulse.app',
-                                fallbackUrl:
-                                    'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
-                                errorTileCallback: (tile, error, stackTrace) {
-                                  AppLogService.error(
-                                    'MAP_TILE',
-                                    'z=${tile.coordinates.z} x=${tile.coordinates.x} y=${tile.coordinates.y}: $error',
-                                    stackTrace,
-                                  );
-                                },
+                        : FamilyMapWidget(
+                            key: _mapKey,
+                            center: childPosition,
+                            markerPoint: childPosition,
+                            initialZoom: 16.0,
+                            followMarker: true,
+                            showDefaultMarker: false,
+                            userAgentPackageName: 'com.familypulse.app',
+                            tileUrlTemplate:
+                                'https://tile.openstreetmap.org/{z}/{x}/{y}.png',
+                            onMapReady: widget.onMapReady,
+                            onTileError: (errorCount) {
+                              AppLogService.error(
+                                'MAP_TILE',
+                                'Ошибок загрузки тайлов: $errorCount',
+                                null,
+                              );
+                            },
+                            circles: [
+                              ...widget.geofences.map(
+                                (zone) => CircleMarker(
+                                  point: zone.center,
+                                  radius: zone.radiusMeters,
+                                  useRadiusInMeter: true,
+                                  color: Colors.indigo.withValues(alpha: 0.12),
+                                  borderColor: Colors.indigo.withValues(
+                                    alpha: 0.5,
+                                  ),
+                                  borderStrokeWidth: 1.5,
+                                ),
                               ),
-                              // 1. Круги геозон + круг точности GPS ребёнка
-                              CircleLayer(
-                                circles: [
-                                  ...widget.geofences.map(
-                                    (zone) => CircleMarker(
-                                      point: zone.center,
-                                      radius: zone.radiusMeters,
-                                      useRadiusInMeter: true,
-                                      color: Colors.indigo.withValues(
-                                        alpha: 0.12,
-                                      ),
-                                      borderColor: Colors.indigo.withValues(
-                                        alpha: 0.5,
-                                      ),
-                                      borderStrokeWidth: 1.5,
-                                    ),
+                              if (widget.accuracy > 0)
+                                CircleMarker(
+                                  point: childPosition,
+                                  radius: widget.accuracy,
+                                  useRadiusInMeter: true,
+                                  color: const Color(
+                                    0xFF2ECC71,
+                                  ).withValues(alpha: 0.18),
+                                  borderColor: const Color(0xFF2ECC71),
+                                  borderStrokeWidth: 1.5,
+                                ),
+                            ],
+                            extraMarkers: [
+                              ...widget.geofences.map(
+                                (zone) => Marker(
+                                  point: zone.center,
+                                  width: 90,
+                                  height: 56,
+                                  alignment: Alignment.topCenter,
+                                  child: GeofenceMapMarker(
+                                    title: zone.title,
+                                    iconType: zone.iconType,
                                   ),
-                                  if (widget.accuracy > 0)
-                                    CircleMarker(
-                                      point: childPosition,
-                                      radius: widget.accuracy,
-                                      useRadiusInMeter: true,
-                                      color: const Color(0xFF2ECC71)
-                                          .withValues(alpha: 0.18),
-                                      borderColor: const Color(0xFF2ECC71),
-                                      borderStrokeWidth: 1.5,
-                                    ),
-                                ],
-                              ),
-
-                              // 2. Маркеры важных точек + Маркер ребёнка с аватаркой
-                              MarkerLayer(
-                                markers: [
-                                  ...widget.geofences.map(
-                                    (zone) => Marker(
-                                      point: zone.center,
-                                      width: 90,
-                                      height: 56,
-                                      alignment: Alignment.topCenter,
-                                      child: GeofenceMapMarker(
-                                        title: zone.title,
-                                        iconType: zone.iconType,
-                                      ),
-                                    ),
-                                  ),
-                                  Marker(
-                                    point: childPosition,
-                                    width: 110,
-                                    height: 82,
-                                    alignment: Alignment.topCenter,
-                                    child: ChildAvatarMapMarker(
-                                      avatarBase64: widget.childAvatarBase64,
-                                      childName: widget.childName,
-                                      isOnline: true,
-                                      isMoving: widget.speedKmh > 12.0,
-                                    ),
-                                  ),
-                                ],
+                                ),
                               ),
                             ],
+                            childMarker: Marker(
+                              point: childPosition,
+                              width: 110,
+                              height: 82,
+                              alignment: Alignment.topCenter,
+                              child: ChildAvatarMapMarker(
+                                avatarBase64: widget.childAvatarBase64,
+                                childName: widget.childName,
+                                isOnline: true,
+                                isMoving: widget.speedKmh > 12.0,
+                              ),
+                            ),
                           ),
-
-                    // Кнопка центрирования на ребёнке
                     if (hasCoords)
                       Positioned(
                         right: 10,
@@ -395,10 +374,7 @@ class _ChildLocationCardState extends State<ChildLocationCard>
                 ),
               ),
             ),
-
             const SizedBox(height: 12),
-
-            // НИЖНЯЯ ПАНЕЛЬ ДЕЙСТВИЙ: Маршрут / Места / История
             Row(
               children: [
                 Expanded(

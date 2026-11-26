@@ -1,12 +1,40 @@
+import 'package:firebase_database/firebase_database.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
-import 'package:firebase_database/firebase_database.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class WebFilterService {
   static const MethodChannel _adminChannel =
       MethodChannel('com.example.family_pulse/device_admin');
 
   static String _lastAppliedSignature = '';
+
+  /// Определяет, работает ли текущее устройство в детском режиме.
+  /// По умолчанию возвращает false, если роль явно не задана как детская (`child`).
+  static Future<bool> isChildMode() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final role = (prefs.getString('user_role') ??
+              prefs.getString('device_role') ??
+              '')
+          .trim()
+          .toLowerCase();
+      return role == 'child' ||
+          role == 'kid' ||
+          role == 'ребёнок' ||
+          role == 'ребенок';
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Гарантирует, что на родительском устройстве локальный VPN-фильтр отключён.
+  static Future<void> ensureDisabledForParent() async {
+    final childMode = await isChildMode();
+    if (!childMode) {
+      await stopFilter();
+    }
+  }
 
   /// Проверка, выдано ли системное разрешение на локальный VPN
   static Future<bool> checkVpnPermission() async {
@@ -18,8 +46,12 @@ class WebFilterService {
     }
   }
 
-  /// Запрос системного диалога разрешения VPN
+  /// Запрос системного диалога разрешения VPN (только для детского режима)
   static Future<bool> requestVpnPermission() async {
+    if (!await isChildMode()) {
+      await stopFilter();
+      return false;
+    }
     try {
       return await _adminChannel.invokeMethod<bool>('requestVpnPermission') ??
           false;
@@ -76,11 +108,19 @@ class WebFilterService {
     return normalizeDomain(domain).replaceAll(RegExp(r'[.#$\[\]/]'), '_');
   }
 
-  /// Синхронизация правил из снимка профиля ребёнка (`children/$childId`) в нативный VPN-сервис
+  /// Синхронизация правил из снимка профиля ребёнка (`children/$childId`) в нативный VPN-сервис.
+  /// На родительском устройстве VPN не запускается и принудительно останавливается, если был активен.
   static Future<void> syncFromChildData(
     Map<dynamic, dynamic> childData, {
     bool force = false,
   }) async {
+    if (!await isChildMode()) {
+      if (await isVpnActive()) {
+        await stopFilter();
+      }
+      return;
+    }
+
     final filterMap = childData['webFilter'] is Map
         ? Map<dynamic, dynamic>.from(childData['webFilter'] as Map)
         : <dynamic, dynamic>{};
@@ -121,7 +161,7 @@ class WebFilterService {
     }
   }
 
-  /// Остановка веб-фильтра (при отвязке устройства ребёнка)
+  /// Остановка веб-фильтра (при отвязке устройства ребёнка или в родительском режиме)
   static Future<void> stopFilter() async {
     _lastAppliedSignature = '';
     try {
