@@ -2,7 +2,7 @@ name: family_pulse
 description: "Мобильное приложение FamilyPulse для защиты и связи членов семьи."
 publish_to: 'none'
 
-version: 1.0.44+45
+version: 1.0.45+46
 
 environment:
   sdk: ^3.13.3
@@ -31,8 +31,8 @@ dependencies:
   flutter_local_notifications: ^18.0.1
   local_auth: ^2.3.0
   local_auth_android: ^1.0.42
+  material_ui: ^1.11.1
 
-  material_ui: any
 dev_dependencies:
   flutter_test:
     sdk: flutter
